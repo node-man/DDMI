@@ -11,6 +11,7 @@ import { runIndex } from "./index-cmd.js";
 import { runQuery } from "./query.js";
 import { runServe } from "./serve.js";
 import { runEval } from "./eval.js";
+import { runWorker } from "./worker.js";
 
 const program = new Command();
 
@@ -75,6 +76,14 @@ program
       question: options.question !== undefined ? parseInt(options.question, 10) : undefined,
       weightsOverride: Object.keys(weightsOverride).length > 0 ? weightsOverride : undefined,
     });
+  });
+
+program
+  .command("worker")
+  .description("Start AI task queue worker")
+  .option("--provider <name>", "AI provider: claude | codex | gemini | ollama")
+  .action(async (options) => {
+    await runWorker(process.cwd(), { provider: options.provider });
   });
 
 program.parse();

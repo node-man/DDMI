@@ -21,6 +21,7 @@ import { logAICall } from "./logger.js";
 
 export interface WorkerConfig {
   pollIntervalMs: number; // 큐 비었을 때 대기 (기본 5초)
+  workerId?: string;       // worker 식별자 (미지정 시 자동 생성)
 }
 
 export interface AIWorker {
@@ -37,6 +38,7 @@ export function createWorker(
   config: Partial<WorkerConfig> = {},
 ): AIWorker {
   const pollMs = config.pollIntervalMs ?? 5000;
+  const workerId = config.workerId ?? `${aiProvider?.name ?? "unknown"}-${randomUUID().slice(0, 6)}`;
   let timer: ReturnType<typeof setInterval> | null = null;
   let processing = false;
 
@@ -45,7 +47,7 @@ export function createWorker(
     processing = true;
 
     try {
-      const tasks = dequeueTasks(db, 1); // 1개만 꺼냄
+      const tasks = dequeueTasks(db, 1, workerId); // 1개, worker_id 스탬프
       if (tasks.length === 0) return false;
 
       const task = tasks[0];

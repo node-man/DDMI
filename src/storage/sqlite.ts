@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS ai_task_queue (
   task_type TEXT NOT NULL,
   priority TEXT NOT NULL DEFAULT 'batch',
   status TEXT NOT NULL DEFAULT 'pending',
+  worker_id TEXT,
   payload JSON NOT NULL,
   result JSON,
   error TEXT,
@@ -407,6 +408,7 @@ export interface QueuedTask {
   taskType: string;
   priority: "immediate" | "batch";
   status: "pending" | "running" | "completed" | "failed";
+  workerId?: string;
   payload: Record<string, unknown>;
   result?: Record<string, unknown>;
   error?: string;
@@ -422,14 +424,22 @@ export function enqueueTask(db: Database.Database, task: Omit<QueuedTask, "statu
   ).run(task.id, task.taskType, task.priority, JSON.stringify(task.payload), new Date().toISOString());
 }
 
-export function dequeueTasks(db: Database.Database, batchSize: number = 10, taskType?: string): QueuedTask[] {
+export function dequeueTasks(
+  db: Database.Database,
+  batchSize: number = 1,
+  workerId?: string,
+  taskType?: string,
+): QueuedTask[] {
   const where = taskType ? "AND task_type = ?" : "";
   const params: unknown[] = [batchSize];
   if (taskType) params.push(taskType);
 
-  // immediate 먼저, 그 다음 batch, 생성 순
+  const now = new Date().toISOString();
+  const wid = workerId ?? "default";
+
+  // 원자적: SELECT + UPDATE를 하나의 문으로 — 여러 worker가 동시에 폴링해도 중복 없음
   const rows = db.prepare(
-    `UPDATE ai_task_queue SET status = 'running', started_at = ?
+    `UPDATE ai_task_queue SET status = 'running', worker_id = '${wid}', started_at = ?
      WHERE id IN (
        SELECT id FROM ai_task_queue
        WHERE status = 'pending' ${where}
@@ -437,7 +447,7 @@ export function dequeueTasks(db: Database.Database, batchSize: number = 10, task
        LIMIT ?
      )
      RETURNING *`,
-  ).all(new Date().toISOString(), ...params) as Array<Record<string, unknown>>;
+  ).all(now, ...params) as Array<Record<string, unknown>>;
 
   return rows.map(rowToQueuedTask);
 }
@@ -465,6 +475,7 @@ function rowToQueuedTask(row: Record<string, unknown>): QueuedTask {
     taskType: row.task_type as string,
     priority: row.priority as QueuedTask["priority"],
     status: row.status as QueuedTask["status"],
+    workerId: row.worker_id as string | undefined,
     payload: parseJsonField(row.payload),
     result: row.result ? parseJsonField(row.result) : undefined,
     error: row.error as string | undefined,
