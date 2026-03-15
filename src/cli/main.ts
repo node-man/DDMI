@@ -12,6 +12,7 @@ import { runQuery } from "./query.js";
 import { runServe } from "./serve.js";
 import { runEval } from "./eval.js";
 import { runWorker } from "./worker.js";
+import { runAudit } from "./audit.js";
 
 const program = new Command();
 
@@ -77,6 +78,17 @@ program
       question: options.question !== undefined ? parseInt(options.question, 10) : undefined,
       weightsOverride: Object.keys(weightsOverride).length > 0 ? weightsOverride : undefined,
     });
+  });
+
+program
+  .command("audit")
+  .description("View audit trail")
+  .option("--last <n>", "Show last N events (default: 20)")
+  .option("--file <path>", "Filter by file path")
+  .option("--type <type>", "Filter by event type")
+  .option("--verify", "Verify hash chain integrity")
+  .action(async (options) => {
+    await runAudit(process.cwd(), options);
   });
 
 program

@@ -166,6 +166,38 @@ export interface SearchResult extends VectorRecord {
   similarity: number; // 1 - distance (cosine)
 }
 
+// ─── Audit Trail ────────────────────────────────────────
+
+export type AuditEventType =
+  | "file_created"
+  | "file_modified"
+  | "conflict_detected"
+  | "conflict_resolved"
+  | "decision_made"
+  | "context_assembled";
+
+export interface AuditEvent {
+  id: string;
+  eventType: AuditEventType;
+  timestamp: string;
+  actor: string;
+  targetFile?: string;
+  targetChunkId?: string;
+  details: Record<string, unknown>;
+  rationale?: string;
+  basedOn?: string[];
+  previousHash: string;
+  hash: string;
+}
+
+export interface AuditFilter {
+  eventType?: AuditEventType;
+  targetFile?: string;
+  after?: string;
+  before?: string;
+  limit?: number;
+}
+
 // ─── Relations & Conflicts ──────────────────────────────
 
 export type RelationType =
