@@ -10,7 +10,7 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc && node dist/cli/main.js serve --dashboard-only --watch",
+    "dev": "tsc && node dist/cli/main.js serve --dashboard-only --port 3001 --watch",
     "dev:client": "vite --config vite.config.client.ts",
     "build:client": "vite build --config vite.config.client.ts",
     "dev:build": "tsc --watch",

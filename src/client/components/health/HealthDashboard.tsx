@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { FileText, Blocks, GitBranch, AlertTriangle, CheckCircle, XCircle } from "lucide-react";
-import { api, type HealthData } from "../../api/client";
+import { api, type HealthData } from "../../lib/client";
 import { StatCard } from "./StatCard";
 
 export function HealthDashboard() {
