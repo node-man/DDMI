@@ -9,7 +9,12 @@
 
 import { randomUUID } from "node:crypto";
 import { createEmbedder, type Embedder } from "./embedder.js";
-import { initDatabase, getFileCount, getChunkCount } from "../storage/sqlite.js";
+import {
+  initDatabase,
+  getFileCount,
+  getChunkCount,
+  searchBM25,
+} from "../storage/sqlite.js";
 import {
   initVectorStore,
   searchSimilar,
@@ -34,8 +39,8 @@ const RECENCY_DATE_SPREAD_THRESHOLD = 30; // days
 // ─── Public API ──────────────────────────────────────────
 
 export interface CuratorDeps {
-  embedder: Embedder;
-  lance: LanceConnection;
+  embedder: Embedder | null;
+  lance: LanceConnection | null;
   dbPath: string;
   weights?: ScoringWeights;
 }
@@ -47,6 +52,11 @@ export async function createCurator(deps: CuratorDeps) {
     async assembleContext(req: ContextRequest): Promise<ContextBundle> {
       const maxTokens = req.maxTokens ?? 8000;
       const feedbackToken = randomUUID();
+
+      // Level 0 fallback: BM25 keyword search (no embedder/lance)
+      if (!deps.embedder || !deps.lance) {
+        return assembleLevel0(deps.dbPath, req, feedbackToken, weights);
+      }
 
       // 1. Embed query
       const queryVec = await deps.embedder.embedOne(req.intent);
@@ -346,4 +356,71 @@ function parseDate(s: string): Date | null {
   if (!s) return null;
   const d = new Date(s.slice(0, 10));
   return isNaN(d.getTime()) ? null : d;
+}
+
+// ─── Level 0: BM25 fallback ─────────────────────────────
+
+function assembleLevel0(
+  dbPath: string,
+  req: ContextRequest,
+  feedbackToken: string,
+  weights: ScoringWeights,
+): ContextBundle {
+  const db = initDatabase(dbPath);
+
+  try {
+    const ftsResults = searchBM25(db, req.intent, TOP_K_POOL);
+
+    if (ftsResults.length === 0) {
+      const fileCount = getFileCount(db);
+      return {
+        blocks: [],
+        metaSummary: `Project: ${fileCount} files indexed. No matching context found (Level 0 — BM25).`,
+        totalTokens: 0,
+        coverageScore: 0,
+        feedbackToken,
+      };
+    }
+
+    // Convert FTS results to SearchResult-like format for scoring
+    const candidates: SearchResult[] = ftsResults.map((r) => ({
+      id: r.chunkId,
+      vector: [],
+      fileId: r.fileId,
+      filePath: r.filePath,
+      sectionPath: r.sectionPath,
+      content: r.content,
+      docType: r.docType,
+      date: "",
+      tokenCount: r.tokenCount,
+      distance: 0,
+      // Normalize BM25 rank to 0-1 similarity (rank is negative, lower = better)
+      similarity: Math.max(0, Math.min(1, 1 + r.rank / 20)),
+    }));
+
+    const scored = scoreCandidates(candidates, req.intent, req.taskType, weights);
+    const selected = packBudget(scored, req.maxTokens ?? 8000, weights, req.exclude);
+
+    const blocks: ContextBlock[] = selected.map((s) => ({
+      content: s.result.content,
+      source: `${s.result.filePath}#${s.result.sectionPath}`,
+      type: s.result.docType,
+      relevance: s.finalScore,
+      tokens: s.result.tokenCount,
+    }));
+
+    const totalTokens = blocks.reduce((sum, b) => sum + b.tokens, 0);
+    const fileCount = getFileCount(db);
+    const chunkCount = getChunkCount(db);
+
+    return {
+      blocks,
+      metaSummary: `Project: ${fileCount} files, ${chunkCount} chunks indexed. Selected ${blocks.length} blocks (${totalTokens} tokens). [Level 0 — BM25]`,
+      totalTokens,
+      coverageScore: computeCoverage(candidates, selected),
+      feedbackToken,
+    };
+  } finally {
+    db.close();
+  }
 }

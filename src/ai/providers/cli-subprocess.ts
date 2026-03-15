@@ -12,6 +12,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { AIProvider } from "../../types.js";
 import { extractJSON } from "../utils.js";
+import { logAICall } from "../logger.js";
 
 interface CLIConfig {
   command: string;
@@ -59,12 +60,59 @@ export function createCLIProvider(toolName: string): AIProvider {
     name: `cli:${toolName}`,
 
     async chat(prompt: string): Promise<string> {
-      return runCLI(config, prompt);
+      const start = Date.now();
+      try {
+        const result = await runCLI(config, prompt);
+        logAICall({
+          provider: `cli:${toolName}`,
+          taskType: "chat",
+          promptLength: prompt.length,
+          responseLength: result.length,
+          durationMs: Date.now() - start,
+          success: true,
+        });
+        return result;
+      } catch (err) {
+        logAICall({
+          provider: `cli:${toolName}`,
+          taskType: "chat",
+          promptLength: prompt.length,
+          responseLength: 0,
+          durationMs: Date.now() - start,
+          success: false,
+          error: (err as Error).message,
+        });
+        throw err;
+      }
     },
 
     async chatJSON<T>(prompt: string): Promise<T> {
-      const raw = await runCLI(config, prompt + "\n\nRespond with valid JSON only.");
-      return extractJSON<T>(raw);
+      const fullPrompt = prompt + "\n\nRespond with valid JSON only.";
+      const start = Date.now();
+      try {
+        const raw = await runCLI(config, fullPrompt);
+        const parsed = extractJSON<T>(raw);
+        logAICall({
+          provider: `cli:${toolName}`,
+          taskType: "chatJSON",
+          promptLength: fullPrompt.length,
+          responseLength: raw.length,
+          durationMs: Date.now() - start,
+          success: true,
+        });
+        return parsed;
+      } catch (err) {
+        logAICall({
+          provider: `cli:${toolName}`,
+          taskType: "chatJSON",
+          promptLength: fullPrompt.length,
+          responseLength: 0,
+          durationMs: Date.now() - start,
+          success: false,
+          error: (err as Error).message,
+        });
+        throw err;
+      }
     },
 
     async healthCheck(): Promise<boolean> {

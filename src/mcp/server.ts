@@ -17,6 +17,7 @@ import { loadConfig } from "../core/config.js";
 import { initVectorStore } from "../storage/lance.js";
 import { initDatabase } from "../storage/sqlite.js";
 import { createRouter } from "../ai/router.js";
+import { initAILogger } from "../ai/logger.js";
 import type { CuratorDeps } from "../core/curator.js";
 import type { AIProvider } from "../types.js";
 import {
@@ -44,6 +45,7 @@ export async function startServer(projectRoot: string): Promise<void> {
 
   // Initialize deps
   const config = loadConfig(projectRoot);
+  initAILogger(ddmiDir);
   const router = await createRouter(config);
   const lance = await initVectorStore(lancePath);
   const db = initDatabase(dbPath);

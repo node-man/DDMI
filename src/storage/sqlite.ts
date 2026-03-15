@@ -62,6 +62,17 @@ CREATE TABLE IF NOT EXISTS feedback_log (
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_token ON feedback_log(feedback_token);
 CREATE INDEX IF NOT EXISTS idx_feedback_outcome ON feedback_log(outcome);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+  chunk_id UNINDEXED,
+  file_id UNINDEXED,
+  file_path UNINDEXED,
+  section_path,
+  content,
+  doc_type UNINDEXED,
+  token_count UNINDEXED,
+  tokenize='unicode61'
+);
 `;
 
 // ─── Init ────────────────────────────────────────────────
@@ -247,6 +258,74 @@ export function saveFeedback(
   );
 
   return record;
+}
+
+// ─── FTS5 (BM25 search for Level 0) ─────────────────────
+
+export interface FTSRecord {
+  chunkId: string;
+  fileId: string;
+  filePath: string;
+  sectionPath: string;
+  content: string;
+  docType: string;
+  tokenCount: number;
+}
+
+export interface FTSResult extends FTSRecord {
+  rank: number; // BM25 rank (lower = more relevant)
+}
+
+export function upsertFTS(db: Database.Database, records: FTSRecord[]): void {
+  const stmt = db.prepare(
+    `INSERT INTO chunks_fts (chunk_id, file_id, file_path, section_path, content, doc_type, token_count)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const r of records) {
+    stmt.run(r.chunkId, r.fileId, r.filePath, r.sectionPath, r.content, r.docType, r.tokenCount);
+  }
+}
+
+export function deleteFTSByFileId(db: Database.Database, fileId: string): void {
+  db.prepare("DELETE FROM chunks_fts WHERE file_id = ?").run(fileId);
+}
+
+export function searchBM25(
+  db: Database.Database,
+  query: string,
+  limit: number = 50,
+): FTSResult[] {
+  const rows = db
+    .prepare(
+      `SELECT chunk_id, file_id, file_path, section_path, content, doc_type, token_count,
+              rank
+       FROM chunks_fts
+       WHERE chunks_fts MATCH ?
+       ORDER BY rank
+       LIMIT ?`,
+    )
+    .all(sanitizeFTSQuery(query), limit) as Array<Record<string, unknown>>;
+
+  return rows.map((r) => ({
+    chunkId: r.chunk_id as string,
+    fileId: r.file_id as string,
+    filePath: r.file_path as string,
+    sectionPath: r.section_path as string,
+    content: r.content as string,
+    docType: r.doc_type as string,
+    tokenCount: r.token_count as number,
+    rank: r.rank as number,
+  }));
+}
+
+/** FTS5 쿼리에서 특수문자 제거, 2글자 이상 토큰만 유지 */
+function sanitizeFTSQuery(query: string): string {
+  const tokens = query
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  if (tokens.length === 0) return '""';
+  return tokens.join(" OR ");
 }
 
 // ─── Transaction Helper ──────────────────────────────────

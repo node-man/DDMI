@@ -18,6 +18,8 @@ import {
   withinTransaction,
   getFileCount,
   getChunkCount,
+  upsertFTS,
+  deleteFTSByFileId,
 } from "../storage/sqlite.js";
 import {
   initVectorStore,
@@ -142,8 +144,21 @@ export async function runIndex(
 
       withinTransaction(db, () => {
         deleteChunksByFileId(db, fileId);
+        deleteFTSByFileId(db, fileId);
         upsertFile(db, fileRecord);
         insertChunks(db, chunks);
+        upsertFTS(
+          db,
+          chunks.map((c) => ({
+            chunkId: c.id,
+            fileId,
+            filePath: relPath,
+            sectionPath: c.sectionPath,
+            content: c.content,
+            docType: parsed.docType,
+            tokenCount: c.tokenCount,
+          })),
+        );
       });
 
       indexed++;

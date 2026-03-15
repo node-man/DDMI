@@ -7,6 +7,7 @@
 
 import type { AIProvider } from "../../types.js";
 import { extractJSON } from "../utils.js";
+import { logAICall } from "../logger.js";
 
 export function createOllamaProvider(
   url: string = "http://localhost:11434",
@@ -16,22 +17,41 @@ export function createOllamaProvider(
     name: `ollama:${model}`,
 
     async chat(prompt: string): Promise<string> {
-      const response = await fetch(`${url}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model,
-          prompt,
-          stream: false,
-        }),
-      });
+      const start = Date.now();
+      try {
+        const response = await fetch(`${url}/api/generate`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model, prompt, stream: false }),
+        });
 
-      if (!response.ok) {
-        throw new Error(`Ollama ${response.status}: ${await response.text()}`);
+        if (!response.ok) {
+          throw new Error(`Ollama ${response.status}: ${await response.text()}`);
+        }
+
+        const data = (await response.json()) as { response: string };
+        const result = data.response.trim();
+        logAICall({
+          provider: `ollama:${model}`,
+          taskType: "chat",
+          promptLength: prompt.length,
+          responseLength: result.length,
+          durationMs: Date.now() - start,
+          success: true,
+        });
+        return result;
+      } catch (err) {
+        logAICall({
+          provider: `ollama:${model}`,
+          taskType: "chat",
+          promptLength: prompt.length,
+          responseLength: 0,
+          durationMs: Date.now() - start,
+          success: false,
+          error: (err as Error).message,
+        });
+        throw err;
       }
-
-      const data = (await response.json()) as { response: string };
-      return data.response.trim();
     },
 
     async chatJSON<T>(prompt: string): Promise<T> {
