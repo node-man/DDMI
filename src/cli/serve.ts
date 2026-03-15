@@ -4,6 +4,8 @@
 
 import { join } from "node:path";
 import { startServer } from "../mcp/server.js";
+import { startDashboard } from "../dashboard/server.js";
+import { initDatabase } from "../storage/sqlite.js";
 import { runIndex } from "./index-cmd.js";
 
 export async function runServe(
@@ -14,6 +16,13 @@ export async function runServe(
     await startWatcher(projectRoot);
   }
 
+  // Dashboard (localhost:3000)
+  const ddmiDir = join(projectRoot, ".ddmi");
+  const dbPath = join(ddmiDir, "index.db");
+  const db = initDatabase(dbPath);
+  startDashboard(db, dbPath);
+
+  // MCP Server (stdio)
   await startServer(projectRoot);
 }
 

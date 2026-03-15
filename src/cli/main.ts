@@ -12,6 +12,7 @@ import { runQuery } from "./query.js";
 import { runServe } from "./serve.js";
 import { runEval } from "./eval.js";
 import { runWorker } from "./worker.js";
+import { runStatus } from "./status.js";
 import { runAudit } from "./audit.js";
 
 const program = new Command();
@@ -78,6 +79,13 @@ program
       question: options.question !== undefined ? parseInt(options.question, 10) : undefined,
       weightsOverride: Object.keys(weightsOverride).length > 0 ? weightsOverride : undefined,
     });
+  });
+
+program
+  .command("status")
+  .description("Show project health status")
+  .action(async () => {
+    await runStatus(process.cwd());
   });
 
 program

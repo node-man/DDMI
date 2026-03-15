@@ -33,6 +33,7 @@
     "node": ">=20.0.0"
   },
   "dependencies": {
+    "@hono/node-server": "^1.19.11",
     "@iarna/toml": "^2.2.5",
     "@lancedb/lancedb": "^0.26.2",
     "@modelcontextprotocol/sdk": "^1.0.0",
@@ -40,6 +41,7 @@
     "better-sqlite3": "^11.0.0",
     "chokidar": "^4.0.0",
     "commander": "^13.0.0",
+    "hono": "^4.12.8",
     "remark-frontmatter": "^5.0.0",
     "remark-gfm": "^4.0.0",
     "remark-parse": "^11.0.0",

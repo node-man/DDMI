@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>ddmi — Conflicts</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+  <nav>
+    <a href="/">Health</a>
+    <a href="/conflicts" class="active">Conflicts</a>
+    <a href="/audit">Audit</a>
+  </nav>
+
+  <h1>Decision Queue</h1>
+
+  <div id="conflicts" hx-get="/api/conflicts" hx-trigger="load" hx-swap="innerHTML">
+    Loading...
+  </div>
+
+  <script>
+    document.addEventListener('htmx:afterSwap', (e) => {
+      if (e.detail.target.id !== 'conflicts') return;
+      const data = JSON.parse(e.detail.xhr.responseText);
+      if (data.length === 0) {
+        e.detail.target.innerHTML = '<div class="card">No open conflicts.</div>';
+        return;
+      }
+      e.detail.target.innerHTML = data.map(c => `
+        <div class="card ${c.severity}">
+          <div style="display:flex;justify-content:space-between;align-items:center">
+            <span><span class="badge ${c.severity}">${c.severity.toUpperCase()}</span> ${c.description}</span>
+            <button onclick="resolveConflict('${c.id}')">Resolve</button>
+          </div>
+          <div style="margin-top:8px;font-size:0.85em;color:#8b949e">
+            Chunk A: ${c.chunkAId} | Chunk B: ${c.chunkBId} | ${c.detectedAt.slice(0,19)}
+          </div>
+        </div>
+      `).join('');
+    });
+
+    async function resolveConflict(id) {
+      const note = prompt('Resolution note:');
+      if (note === null) return;
+      await fetch('/api/conflicts/' + id + '/resolve', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({resolvedBy: 'human', note}),
+      });
+      htmx.trigger('#conflicts', 'load');
+    }
+  </script>
+</body>
+</html>
