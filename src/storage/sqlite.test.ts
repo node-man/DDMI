@@ -16,8 +16,11 @@ import {
   getFileCount,
   saveFeedback,
   withinTransaction,
+  insertConflict,
+  resolveConflict,
+  getOpenConflicts,
 } from "./sqlite.js";
-import type { FileRecord, ChunkRecord, ScoringWeights } from "../types.js";
+import type { FileRecord, ChunkRecord, ScoringWeights, Conflict } from "../types.js";
 import type Database from "better-sqlite3";
 
 const TEST_DIR = join(import.meta.dirname, "../../.test-tmp/sqlite");
@@ -213,6 +216,37 @@ describe("SQLite Storage", () => {
         }),
       ).toThrow("intentional");
       expect(getFileCount(db)).toBe(0);
+    });
+  });
+
+  describe("resolveConflict", () => {
+    it("open 충돌을 resolve하면 true 반환", () => {
+      insertConflict(db, {
+        id: "cf1", chunkAId: "c1", chunkBId: "c2",
+        severity: "high", description: "test",
+        status: "open", detectedAt: "2026-01-01",
+      });
+
+      const changed = resolveConflict(db, "cf1", "human", "fixed");
+      expect(changed).toBe(true);
+      expect(getOpenConflicts(db)).toHaveLength(0);
+    });
+
+    it("존재하지 않는 ID → false 반환", () => {
+      const changed = resolveConflict(db, "nonexistent", "human", "n/a");
+      expect(changed).toBe(false);
+    });
+
+    it("이미 resolved된 충돌 → false 반환 (중복 방지)", () => {
+      insertConflict(db, {
+        id: "cf2", chunkAId: "c1", chunkBId: "c2",
+        severity: "medium", description: "test",
+        status: "open", detectedAt: "2026-01-01",
+      });
+
+      resolveConflict(db, "cf2", "human", "first");
+      const secondAttempt = resolveConflict(db, "cf2", "human", "duplicate");
+      expect(secondAttempt).toBe(false);
     });
   });
 });
