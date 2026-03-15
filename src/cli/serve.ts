@@ -20,19 +20,17 @@ export async function runServe(
 async function startWatcher(projectRoot: string): Promise<void> {
   const { watch } = await import("chokidar");
 
-  const watcher = watch(join(projectRoot, "**/*.md"), {
-    ignored: [
-      "**/node_modules/**",
-      "**/.git/**",
-      "**/.ddmi/**",
-      "**/dist/**",
-    ],
+  // chokidar v4: watch directory, filter .md files via ignored
+  const watcher = watch(projectRoot, {
+    ignored: (path: string) => {
+      // Ignore non-.md files (but allow directories for traversal)
+      const isDir = !path.includes(".");
+      if (!isDir && !path.endsWith(".md")) return true;
+      // Ignore standard dirs
+      return /(node_modules|\.git|\.ddmi|dist|eval)/.test(path);
+    },
     persistent: true,
     ignoreInitial: true,
-    awaitWriteFinish: {
-      stabilityThreshold: 2000,
-      pollInterval: 500,
-    },
   });
 
   let debounceTimer: ReturnType<typeof setTimeout> | null = null;

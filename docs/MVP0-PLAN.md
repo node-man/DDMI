@@ -284,15 +284,15 @@ getFeedbackStats(): FeedbackStats  // 통계 조회 (디버깅용)
 - [x] MCP 연동 → context_assemble 호출 → 컨텍스트 수신 (JSON-RPC + Claude Code 실제 연동 모두 성공)
 - [x] 실제 프로젝트(이 프로젝트 자체)에서 end-to-end 테스트 (69파일 인덱스 → 517 tokens 큐레이션, coverage 0.95)
 - [x] context_feedback 호출 → feedback_log 저장 확인 (FB-20260315-001)
-- [ ] serve --watch: 파일 변경 → 자동 리인덱싱 확인
+- [x] serve --watch: 파일 변경 → 자동 리인덱싱 확인 (chokidar v4 수정, 0.6초 리인덱스)
 - [x] 에러 핸들링: 인덱스 없이 serve 시 안내 메시지
-- [ ] **이슈: eval/corpus가 인덱싱에 포함되어 실험 문서가 실제 문서보다 우선 반환됨 → ignore 패턴에 eval/ 추가 필요**
+- [x] ~~이슈: eval/corpus 인덱싱 오염~~ → 수정 완료 (eval/ ignore 추가, 5파일만 인덱싱)
 
 ### Day 15: 마무리
 
-- [ ] README.md 업데이트 (실제 설치/사용법)
-- [ ] npm 패키지 준비 (`npm pack` 테스트)
-- [ ] CHANGELOG.md 작성
+- [x] README.md 업데이트 (설치, MCP 도구, CLI, 스코어링, 성능)
+- [x] npm 패키지 준비 (npm pack → ddmi-0.1.0.tgz, 152KB)
+- [x] CHANGELOG.md 작성
 
 ---
 
@@ -328,3 +328,7 @@ storage/lance.ts     core/chunker.ts
                     cli/index-cmd.ts
                     cli/query.ts
 ```
+
+<!-- watch test 3 -->
+
+<!-- final watch test -->
