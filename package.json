@@ -10,7 +10,8 @@
   },
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch",
+    "dev": "tsc && node dist/cli/main.js serve --dashboard-only --watch",
+    "dev:build": "tsc --watch",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "lint": "tsc --noEmit"
