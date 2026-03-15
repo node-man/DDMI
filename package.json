@@ -1,6 +1,6 @@
 {
   "name": "ddmi",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Document-Driven Memory Infrastructure — Drift monitor & integrity layer for AI agents",
   "type": "module",
   "main": "dist/index.js",

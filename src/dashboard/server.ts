@@ -66,9 +66,13 @@ export function startDashboard(db: Database.Database, dbPath: string, port: numb
     const id = c.req.param("id");
     const body = await c.req.json<{ resolvedBy: string; note: string }>();
 
-    resolveConflict(db, id, body.resolvedBy ?? "human", body.note ?? "");
+    const changed = resolveConflict(db, id, body.resolvedBy ?? "human", body.note ?? "");
 
-    // Audit log
+    if (!changed) {
+      return c.json({ success: false, error: "Conflict not found or already resolved" }, 404);
+    }
+
+    // Audit log — 실제로 상태가 변경된 경우에만
     const trail = createAuditTrail(dbPath);
     trail.log({
       eventType: "conflict_resolved",

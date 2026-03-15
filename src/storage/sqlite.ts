@@ -381,10 +381,11 @@ export function resolveConflict(
   conflictId: string,
   resolvedBy: string,
   note: string,
-): void {
-  db.prepare(
-    `UPDATE conflicts SET status = 'resolved', resolved_by = ?, resolved_at = ?, resolution_note = ? WHERE id = ?`,
+): boolean {
+  const result = db.prepare(
+    `UPDATE conflicts SET status = 'resolved', resolved_by = ?, resolved_at = ?, resolution_note = ? WHERE id = ? AND status = 'open'`,
   ).run(resolvedBy, new Date().toISOString(), note, conflictId);
+  return result.changes > 0;
 }
 
 export function getConflictCount(db: Database.Database): number {
