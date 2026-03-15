@@ -176,16 +176,24 @@ interface ProvenanceStep {
 
 ### Week 4 검증
 
-- [x] `ddmi init` → 사용 가능한 AI provider 자동 감지 (claude, codex, gemini → Level 2)
-- [x] CLI(gemini)로 knowledge_query 실행 성공 (17.9초, 429자 응답)
-- [ ] Ollama로 LLM 태스크 실행 성공 (Ollama 미설치 환경 — 설치 후 검증 예정)
-- [x] healthCheck 실패 시 fallback 체인 정상 작동 (CLI 없음 → Ollama → Level 1)
+- [x] `ddmi init` → AI provider 자동 감지: claude, codex, gemini, ollama:qwen3.5:9b (Level 2)
+- [x] 4개 provider 전부 검증 완료 (동일 질문 테스트):
+  - cli:claude 7.2s ✓ | cli:codex 5.1s ✓ | cli:gemini 15.8s ✓ | ollama:qwen3.5:9b 61.8s ✓
+- [x] healthCheck → `which`만 사용, API 호출 0 (gemini 사고 후 수정)
 - [x] `extractJSON()` — ANSI 코드 포함 stdout에서 JSON 정상 추출 (8 tests)
 - [x] AITaskQueue — 배치 시스템 구현 (batchSize=10, flush 3초, 동시성 3)
 - [x] knowledge_query MCP 호출 → 자연어 답변 + 출처 반환 (Level 2)
 - [x] knowledge_query Level 1 환경 → 에러 메시지 ("LLM provider 필요")
 - [x] Graceful Degradation 3단계 완전 구현 (Level 0: BM25, Level 1: +벡터, Level 2: +LLM)
-- [x] AI 호출 로깅 → .ddmi/ai.log (provider, duration, prompt/response 길이)
+- [x] AI 호출 로깅 → .ddmi/ai.log JSONL (prompt/response 전문 포함)
+- [x] Rate Limiter — 분당 10회, 세션당 100회 하드 리밋 (5 tests)
+- [x] Ollama Docker 감지 — HTTP /api/tags 체크 (which 불가 환경 대응)
+
+### Week 4 사고 기록
+
+- **gemini 할당량 폭주**: healthCheck에서 `gemini prompt` (잘못된 subcommand) → 대화형 모드 진입 → 내부 retry 1300회 → 할당량 전소
+- **수정**: healthCheck=which, `-p ""` + stdin, rate limiter, CLAUDE.md 안전 규칙 6개
+- **codex 플래그 오류**: `-q` (존재하지 않는 플래그) → `exec -` (올바른 비대화형 모드)
 
 ---
 
