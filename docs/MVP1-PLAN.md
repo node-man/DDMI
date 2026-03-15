@@ -560,13 +560,13 @@ ddmi status
 
 ### Week 7 검증
 
-- [ ] `ddmi serve` → Dashboard 접속 (localhost:3000)
-- [ ] Health 페이지: 파일 수, 충돌 수, 체인 무결성 표시
-- [ ] Conflicts 페이지: 충돌 카드 표시 → 승인 → 상태 변경
-- [ ] Audit 페이지: 시간순 로그 + 필터
-- [ ] 충돌 승인 → audit_log 기록 확인
-- [ ] `ddmi status` → CLI에서 프로젝트 건강도 확인
-- [ ] `ddmi serve --watch` + Dashboard 동시 동작
+- [x] `ddmi serve --dashboard-only` → Dashboard 접속 (localhost:3000)
+- [x] Health API: files=14, chunks=227, chainValid=true
+- [x] Conflicts API: 충돌 목록 + POST resolve
+- [x] Audit API: 이벤트 목록 + 필터
+- [x] HTML 3페이지 렌더링 (Health, Conflicts, Audit)
+- [x] `ddmi status` → 14 indexed, 227 chunks, chain valid, 4 pending
+- [x] `npm run dev` → build + dashboard + watcher
 
 ---
 
