@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { existsSync, rmSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   initVectorStore,
   upsertVectors,
@@ -13,11 +14,9 @@ import type { LanceConnection } from "./lance.js";
 import type { VectorRecord } from "../types.js";
 
 const TEST_DIR = join(import.meta.dirname, "../../.test-tmp/lance");
-let lanceCounter = 0;
 
 function lancePath(): string {
-  lanceCounter++;
-  return join(TEST_DIR, `vectors-${lanceCounter}.lance`);
+  return join(TEST_DIR, `vectors-${randomUUID()}.lance`);
 }
 
 function makeVector(

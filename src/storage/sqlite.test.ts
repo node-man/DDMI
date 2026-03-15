@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { existsSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import {
   initDatabase,
   upsertFile,
@@ -20,11 +21,9 @@ import type { FileRecord, ChunkRecord, ScoringWeights } from "../types.js";
 import type Database from "better-sqlite3";
 
 const TEST_DIR = join(import.meta.dirname, "../../.test-tmp/sqlite");
-let testCounter = 0;
 
 function testDbPath(): string {
-  testCounter++;
-  return join(TEST_DIR, `test-${testCounter}.db`);
+  return join(TEST_DIR, `test-${randomUUID()}.db`);
 }
 
 function makeFile(overrides: Partial<FileRecord> = {}): FileRecord {
