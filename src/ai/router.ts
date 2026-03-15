@@ -41,23 +41,11 @@ export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
   );
 
   // 2. Detect AI providers
+  // 우선순위: Ollama (상시 worker) → CLI (일회성 fallback)
   const aiProviders: AIProvider[] = [];
   const providerNames: string[] = [];
 
-  // CLI tools (priority 1)
-  if (config.ai.defaultProvider === "auto" || config.ai.defaultProvider.startsWith("cli")) {
-    const cliTools = await detectCLITools();
-    for (const tool of cliTools) {
-      const provider = createCLIProvider(tool);
-      const healthy = await provider.healthCheck();
-      if (healthy) {
-        aiProviders.push(provider);
-        providerNames.push(`cli:${tool}`);
-      }
-    }
-  }
-
-  // Ollama (priority 2)
+  // Ollama (priority 1 — 상시 실행 worker, 프로세스 생성 오버헤드 0)
   if (
     config.ai.defaultProvider === "auto" ||
     config.ai.defaultProvider === "ollama"
@@ -70,6 +58,19 @@ export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
     if (healthy) {
       aiProviders.push(ollama);
       providerNames.push(ollama.name);
+    }
+  }
+
+  // CLI tools (priority 2 — 호출마다 프로세스 생성/종료, 배치 시에만 사용 권장)
+  if (config.ai.defaultProvider === "auto" || config.ai.defaultProvider.startsWith("cli")) {
+    const cliTools = await detectCLITools();
+    for (const tool of cliTools) {
+      const provider = createCLIProvider(tool);
+      const healthy = await provider.healthCheck();
+      if (healthy) {
+        aiProviders.push(provider);
+        providerNames.push(`cli:${tool}`);
+      }
     }
   }
 
