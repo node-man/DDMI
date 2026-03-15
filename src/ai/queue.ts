@@ -14,6 +14,7 @@ import {
   completeTask,
   failTask,
   getPendingTaskCount,
+  reclaimStaleTasks,
   type QueuedTask,
 } from "../storage/sqlite.js";
 import { insertConflict } from "../storage/sqlite.js";
@@ -80,8 +81,13 @@ export function createWorker(
         // else: 큐 비었으면 interval이 다음 폴링 담당
       };
 
+      // 시작 시 stale 태스크 복구 (이전 worker 크래시 대비)
+      const reclaimed = reclaimStaleTasks(db);
+      if (reclaimed > 0) {
+        console.error(`[ddmi worker] reclaimed ${reclaimed} stale tasks`);
+      }
+
       timer = setInterval(poll, pollMs);
-      // 시작 시 즉시 1회
       void poll();
     },
 
@@ -107,20 +113,15 @@ async function processConflictTask(
   aiProvider: AIProvider,
   task: QueuedTask,
 ): Promise<void> {
-  const pairs = (task.payload.pairs ?? []) as Array<{
-    aId: string; aContent: string; bId: string; bContent: string;
-  }>;
+  // 1 태스크 = 1 쌍
+  const pair = task.payload as { aId: string; aContent: string; bId: string; bContent: string };
 
-  if (pairs.length === 0) {
-    completeTask(db, task.id, { conflicts: 0 });
+  if (!pair.aId || !pair.bId) {
+    failTask(db, task.id, "Invalid payload: missing aId or bId");
     return;
   }
 
-  // 각 쌍을 개별 프롬프트로 — 집중도 높은 분석
-  let conflictCount = 0;
-
-  for (const pair of pairs) {
-    const prompt = `Compare these two document chunks. Do they contradict each other?
+  const prompt = `Compare these two document chunks. Do they contradict each other?
 
 Chunk A (${pair.aId}):
 ${pair.aContent.slice(0, 600)}
@@ -133,52 +134,50 @@ Respond with JSON:
 
 Only flag TRUE contradictions. High-precision preferred.`;
 
-    const start = Date.now();
-    try {
-      const result = await aiProvider.chatJSON<{
-        is_conflict: boolean;
-        severity: string;
-        description: string;
-      }>(prompt);
+  const start = Date.now();
+  try {
+    const result = await aiProvider.chatJSON<{
+      is_conflict: boolean;
+      severity: string;
+      description: string;
+    }>(prompt);
 
-      logAICall({
-        provider: aiProvider.name,
-        taskType: "conflict_detection",
-        prompt,
-        response: JSON.stringify(result),
-        durationMs: Date.now() - start,
-        success: true,
-      });
+    logAICall({
+      provider: aiProvider.name,
+      taskType: "conflict_detection",
+      prompt,
+      response: JSON.stringify(result),
+      durationMs: Date.now() - start,
+      success: true,
+    });
 
-      if (result.is_conflict) {
-        const conflict: Conflict = {
-          id: randomUUID().slice(0, 16),
-          chunkAId: pair.aId,
-          chunkBId: pair.bId,
-          severity: (["low", "medium", "high"].includes(result.severity)
-            ? result.severity : "medium") as Conflict["severity"],
-          description: result.description || "Conflict detected",
-          status: "open",
-          detectedAt: new Date().toISOString(),
-        };
-        insertConflict(db, conflict);
-        conflictCount++;
-        console.error(`[ddmi worker] conflict: ${pair.aId} vs ${pair.bId} (${result.severity})`);
-      }
-    } catch (err) {
-      logAICall({
-        provider: aiProvider.name,
-        taskType: "conflict_detection",
-        prompt,
-        response: "",
-        durationMs: Date.now() - start,
-        success: false,
-        error: (err as Error).message,
-      });
-      // 개별 쌍 실패는 무시 — 다음 쌍 계속 처리
-      console.error(`[ddmi worker] pair failed: ${(err as Error).message.slice(0, 60)}`);
+    if (result.is_conflict) {
+      const conflict: Conflict = {
+        id: randomUUID().slice(0, 16),
+        chunkAId: pair.aId,
+        chunkBId: pair.bId,
+        severity: (["low", "medium", "high"].includes(result.severity)
+          ? result.severity : "medium") as Conflict["severity"],
+        description: result.description || "Conflict detected",
+        status: "open",
+        detectedAt: new Date().toISOString(),
+      };
+      insertConflict(db, conflict);
+      console.error(`[ddmi worker] conflict: ${pair.aId} vs ${pair.bId} (${result.severity})`);
     }
-  }
 
-  completeTask(db, task.id, { conflicts: conflictCount, pairs: pairs.length });
+    completeTask(db, task.id, { is_conflict: result.is_conflict });
+  } catch (err) {
+    logAICall({
+      provider: aiProvider.name,
+      taskType: "conflict_detection",
+      prompt,
+      response: "",
+      durationMs: Date.now() - start,
+      success: false,
+      error: (err as Error).message,
+    });
+    // 실패한 태스크는 failed로 마킹 — 다음 worker 시작 시 reclaim 안 됨 (의도적)
+    failTask(db, task.id, (err as Error).message);
+  }
 }

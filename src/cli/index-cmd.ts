@@ -80,6 +80,10 @@ export async function runIndex(
       const content = readFileSync(filePath, "utf-8");
       const checksum = computeChecksum(content);
 
+      // 모든 파일의 fileId를 수집 (관계 추출에 필요 — skip된 파일도 링크 target이 될 수 있음)
+      const fileIdForMap = generateFileId(relPath);
+      allFileIds.set(relPath, fileIdForMap);
+
       // Incremental: skip unchanged files
       if (options.incremental) {
         const existing = getFileByChecksum(db, relPath);
@@ -113,7 +117,6 @@ export async function runIndex(
 
       // Store (atomic: SQLite + LanceDB)
       const fileId = generateFileId(relPath);
-      allFileIds.set(relPath, fileId);
       const now = new Date().toISOString();
       const fileStats = statSync(filePath);
 
@@ -238,20 +241,22 @@ export async function runIndex(
         const conflicts = await relationEngine.detectConflictsAI(pairsWithContent);
         conflictCount = conflicts.length;
       } else {
-        // provider 없음: 큐에 넣고 끝 (serve의 worker가 처리)
-        enqueueTask(db, {
-          id: randomUUID().slice(0, 16),
-          taskType: "conflict_detection",
-          priority: "batch",
-          payload: { pairs: pairsWithContent },
-        });
+        // provider 없음: 쌍 1개 = 태스크 1개 (serve의 worker가 순차 처리)
+        for (const pair of pairsWithContent) {
+          enqueueTask(db, {
+            id: randomUUID().slice(0, 16),
+            taskType: "conflict_detection",
+            priority: "batch",
+            payload: pair,
+          });
+        }
       }
     }
 
     if (relCount > 0 || pairs.length > 0) {
       const action = aiProvider
         ? `${conflictCount} conflicts detected`
-        : `${Math.ceil(pairs.length / 10)} tasks queued`;
+        : `${pairs.length} tasks queued`;
       console.log(`  Relations: ${relCount} explicit, ${pairs.length} similar pairs → ${action}`);
     }
 
