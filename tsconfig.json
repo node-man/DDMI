@@ -16,5 +16,5 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "eval"]
+  "exclude": ["node_modules", "dist", "eval", "src/client"]
 }
