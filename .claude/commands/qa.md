@@ -110,6 +110,30 @@ Agent와의 **유일한 인터페이스**. 여기가 깨지면 모든 게 무의
 
 **실패 시 "Go Live" 거부. 예외 없음.**
 
+### 0. 테스트 커버리지 게이트 (Phase 넘어가기 전 필수)
+
+**이 게이트를 통과하지 못하면 다른 영역을 검증할 필요도 없다.**
+
+```bash
+# 모든 core/, ai/, mcp/tools/ 모듈에 대응하는 .test.ts가 있는지 확인
+for f in src/core/*.ts src/ai/*.ts src/mcp/tools/*.ts; do
+  [[ "$f" == *.test.ts ]] && continue
+  [[ "$f" == *.d.ts ]] && continue
+  test_file="${f%.ts}.test.ts"
+  [[ ! -f "$test_file" ]] && echo "BLOCKED: $f has no test"
+done
+```
+
+**기준:**
+- `src/core/` — 모든 모듈 테스트 필수 (비즈니스 로직)
+- `src/ai/` — 모든 모듈 테스트 필수 (외부 시스템 연동)
+- `src/mcp/tools/` — 모든 도구 테스트 필수 (Agent 인터페이스)
+- `src/storage/` — 모든 모듈 테스트 필수 (데이터 무결성)
+- `src/cli/` — init, index-cmd는 테스트 권장 (복잡한 로직)
+- `src/dashboard/` — API 엔드포인트 테스트 권장
+
+**테스트 없는 모듈이 1개라도 있으면 → BLOCKED. "리스크"가 아님.**
+
 ### 5. MVP-1 전용 테스트 (구현 후)
 
 **AI Provider (Week 4):**
