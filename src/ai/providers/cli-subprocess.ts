@@ -45,7 +45,7 @@ const CLI_TOOLS: Record<string, CLIConfig> = {
   },
   gemini: {
     command: "gemini",
-    args: ["-p", ""],   // -p ""로 headless 모드 진입, 프롬프트는 stdin
+    args: ["-p", "", "-m", "gemini-3-flash-preview"],
     name: "Gemini CLI",
     timeoutMs: 60000,
     promptMode: "stdin",
