@@ -116,8 +116,9 @@ export function createCLIProvider(toolName: string): AIProvider {
     },
 
     async healthCheck(): Promise<boolean> {
+      // which만으로 설치 여부 판단. 실제 API 호출 안 함 (할당량 절약).
       try {
-        await runCLI(config, "Respond with: ok", 5000);
+        await which(config.command);
         return true;
       } catch {
         return false;
