@@ -26,7 +26,7 @@ import {
 } from "../storage/lance.js";
 import type { FileRecord, VectorRecord } from "../types.js";
 
-const IGNORE_PATTERNS = ["node_modules", ".git", ".ddmi", "dist", ".test-tmp"];
+const IGNORE_PATTERNS = ["node_modules", ".git", ".ddmi", "dist", ".test-tmp", "eval"];
 
 export async function runIndex(
   projectRoot: string,
