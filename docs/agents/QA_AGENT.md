@@ -1,3 +1,5 @@
+> **DEPRECATED**: 이 문서는 `.claude/commands/qa.md`로 대체되었습니다. `/qa`로 호출하세요.
+
 # QA Agent Instructions (DDMI QA Specialist)
 
 ## Role Identity

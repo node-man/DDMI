@@ -131,25 +131,25 @@ Day 1 실험에서 발견한 것:
 
 ## 현재 프로젝트 상태 (호출 시 참조)
 
-**Phase**: Building (MVP-0 완료 → MVP-1 진입 전)
+**Phase**: Building (MVP-1 완료 → Phase 2 진입 전)
 
 **완성물:**
-- 소스 코드: ~3,000 LOC TypeScript
-- 테스트: 59개 통과
-- CLI: init, index, query, serve, eval
-- MCP: context_assemble, context_feedback (Claude Code 연동 검증)
-- 문서: DDMI.md(1,270줄), MVP0-PLAN.md, MVP0-RETROSPECTIVE.md, AGENTS.md, README.md, CHANGELOG.md
+- 소스 코드: TypeScript
+- 테스트: 150개 (19 test files)
+- CLI: init, index, query, serve, eval, audit, status, worker
+- MCP: context_assemble, context_feedback, knowledge_query, mutate_audited
+- Dashboard: Hono + htmx (Health, Conflicts, Audit)
+- AI Providers: claude, codex, gemini, ollama (4개)
+- Degradation: Level 0 (BM25) → Level 1 (벡터) → Level 2 (LLM)
 
 **미해결 기술 부채:**
-1. Curator 단위 테스트 없음
-2. config.toml 파서 미구현 (가중치 하드코딩)
-3. 스코어링 composite 0.217 (목표 0.5+)
-4. SQLite/LanceDB 원자성 미검증 (에러 복구)
+1. Dashboard 시각화 부재 (텍스트 UI만)
+2. eval composite 0.188 (목표 0.5+)
+3. 50+ 파일 스케일 미검증
 
 **경쟁 환경:**
-- opencode-lore: 동일 컨셉, OpenCode 전용
-- engram: persistent memory for AI agents, MCP 지원
-- 차별화: 감사 추적 + 충돌 감지 + 피드백 학습 (이들이 안 하는 것)
+- 차별화: 감사 추적(해시 체인) + 충돌 감지 + 피드백 학습
+- 기본기: 파일 탐색, 그래프 시각화, 검색 UI 필요 (Phase 2)
 
 ---
 

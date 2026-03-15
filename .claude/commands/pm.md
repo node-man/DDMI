@@ -14,21 +14,22 @@ ddmi (**Document-Driven Memory Infrastructure**) — AI Agent가 프로젝트의
 
 **태그라인**: Drift monitor & integrity layer for AI agents.
 
-### 현재 상태 (MVP-0 완료)
+### 현재 상태 (MVP-1 완료)
 
 완성된 것:
-- Semantic Index: parser → chunker → embedder → SQLite + LanceDB
-- Context Curator: 스코어링(semantic+keyword+authority+recency) + budget packing
-- MCP Server: context_assemble + context_feedback (stdio transport)
-- CLI: init, index, query, serve --watch, eval
-- 59 tests, 2,968 LOC TypeScript
+- Semantic Index + Context Curator + MCP Server (MVP-0)
+- AI Provider (claude, codex, gemini, ollama) + knowledge_query
+- Relation Engine (3단계 추출) + 충돌 감지 + SQLite 큐 worker
+- Audit Trail (SHA-256 해시 체인) + mutate_audited MCP
+- Mission Control Dashboard (Hono + htmx)
+- 150 tests, 19 test files
+- Rate Limiter + AI call JSONL logging
 
-**MVP-0 회고에서 발견한 이슈** (docs/MVP0-RETROSPECTIVE.md):
-1. Curator 단위 테스트 부재
-2. config.toml을 실제로 읽지 않음 (하드코딩)
-3. 스코어링 품질 composite 0.217 (개선 필요)
-4. 에러 복구 불완전 (SQLite/LanceDB 불일치 가능)
-5. 경쟁자 다수 존재 (opencode-lore, engram)
+**MVP-1 회고에서 발견한 이슈** (docs/MVP1-RETROSPECTIVE.md):
+1. Dashboard 시각화 부재
+2. eval composite 0.188
+3. QA 에이전트가 테스트 커버리지 갭을 늦게 발견
+4. Gemini CLI 할당량 폭주 사고 → API Safety Rules
 
 ### 기술 스택
 
@@ -131,7 +132,7 @@ TypeScript, Node.js, SQLite(better-sqlite3), LanceDB, @xenova/transformers, @mod
 - **타입**: TypeScript strict mode. any 금지
 - **에러**: Result 패턴(neverthrow) 또는 명시적 try-catch. 조용한 실패 금지
 - **문서**: 각 모듈 상단에 JSDoc. "왜"만 설명
-- **성능**: 인덱싱 50파일 < 30초, 쿼리 < 2초, 메모리 < 500MB
+- **성능**: 인덱싱 50파일 < 30초, 쿼리 < 2초, 메모리 < 1GB
 
 ## 호출 방법
 

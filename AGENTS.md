@@ -30,43 +30,101 @@ ddmi (**Document-Driven Memory Infrastructure**) ensures AI agents never contrad
 - Both live under `.ddmi/` directory. WAL mode enabled for SQLite
 - Atomic updates: SQLite BEGIN → chunk updates → LanceDB vector updates → COMMIT. ROLLBACK on failure
 
-## MVP-0 Scope (What to Build)
+## Completed Scope (MVP-0 + MVP-1)
 
-Only these modules:
+### MVP-0 (완료)
 - `src/core/parser.ts` — MD parsing (remark + frontmatter + GFM)
 - `src/core/chunker.ts` — Section-based chunking (500 tok max, 50 tok min)
 - `src/core/embedder.ts` — transformers.js embedding wrapper
 - `src/core/curator.ts` — Scoring + budget packing + assembly
 - `src/core/feedback.ts` — Feedback collection (stub + SQLite storage)
-- `src/storage/sqlite.ts` — SQLite schema + queries (files, chunks, feedback_log only)
+- `src/storage/sqlite.ts` — SQLite schema + queries
 - `src/storage/lance.ts` — LanceDB wrapper (upsert, search, delete)
 - `src/mcp/server.ts` — MCP Server (stdio transport)
 - `src/mcp/tools/context-assemble.ts` — Main MCP tool
 - `src/mcp/tools/context-feedback.ts` — Feedback MCP tool
 - `src/cli/main.ts` — CLI entry point (commander)
-- `src/cli/init.ts` — `ddmi init`
-- `src/cli/index-cmd.ts` — `ddmi index`
-- `src/cli/serve.ts` — `ddmi serve`
-- `src/cli/query.ts` — `ddmi query`
+- `src/cli/init.ts`, `index-cmd.ts`, `serve.ts`, `query.ts`
 
-Do NOT build in MVP-0:
-- `src/ai/` (provider, router, queue, providers/*, prompts/*)
-- `src/core/relations.ts`
-- `src/core/audit.ts`
-- `src/core/watcher.ts` (except basic chokidar in `serve --watch`)
-- `src/mcp/tools/knowledge-query.ts`
-- `src/mcp/tools/mutate-audited.ts`
+### MVP-1 (완료)
+- **AI Provider 추상화** (4 providers):
+  - `src/ai/provider.ts` — AIProvider + EmbeddingProvider interfaces
+  - `src/ai/router.ts` — Task-based routing logic
+  - `src/ai/providers/cli-subprocess.ts` — Claude Code, Codex, Gemini CLI delegation
+  - `src/ai/providers/ollama.ts` — Ollama HTTP API
+  - `src/ai/providers/transformers.ts` — Built-in embedding (default)
+  - `src/ai/providers/pipe.ts` — Generic stdin/stdout adapter
+  - `src/ai/providers/api.ts` — API fallback
+  - `src/ai/prompts/` — All prompt templates for AI tasks
+  - `src/ai/queue.ts` — AITaskQueue: batch execution, flush logic, concurrency control
+- **Relation Engine** (관계 추출 + 충돌 감지):
+  - `src/core/relations.ts` — 3단계 관계 추출 (명시적 링크, 임베딩 유사도, LLM 분석)
+  - 충돌 감지 + SQLite 큐 worker
+- **Audit Trail** (해시 체인 + mutate_audited):
+  - `src/core/audit.ts` — SHA-256 해시 체인, append-only 감사 로그
+  - `src/mcp/tools/mutate-audited.ts` — 감사 추적 포함 파일 변경 MCP tool
+  - `src/cli/audit.ts` — `ddmi audit` CLI
+- **Dashboard** (Mission Control):
+  - `src/dashboard/` — Hono + htmx (Health, Conflicts, Audit 페이지)
+- **Worker**:
+  - SQLite 큐 + MQ 패턴 기반 백그라운드 작업 처리
+  - `src/cli/worker.ts` — `ddmi worker` CLI
+- **Rate Limiter**:
+  - AI call JSONL logging + 할당량 관리
+- **추가 MCP 도구**:
+  - `src/mcp/tools/knowledge-query.ts` — LLM 기반 지식 질의
+- **추가 CLI**:
+  - `src/cli/status.ts` — `ddmi status`
+
+### External API Safety Rules
+- Gemini CLI 할당량 폭주 사고 이후 API Safety Rules 도입
+- Rate Limiter로 외부 AI 호출 제어
+
+### Phase 2+ (미구현)
 - `src/mcp/tools/shared-memory.ts`
 - `src/mcp/tools/event-broadcast.ts`
-- `src/dashboard/`
+- Dashboard SSE 실시간 업데이트
+- 피드백 기반 가중치 자동 학습
 
 ## Testing
 
 - Framework: vitest
+- **150 tests** across **19 test files**
 - Core functions must be pure (no IO). IO is injected via interfaces
 - Test files: `src/**/*.test.ts` (co-located)
 - Coverage target: 80%+
 - Performance tests: indexing 50 files < 30s, query response < 2s
+
+## Specialized Agents
+
+### Senior Reviewer Agent
+
+When the user explicitly asks for a rigorous senior review, load and follow:
+
+- `docs/agents/SENIOR_REVIEWER_AGENT.md`
+
+Use this agent when the request implies one of these intents:
+
+- "시니어 리뷰어로 봐줘"
+- "꼼꼼하게 리뷰해줘"
+- "아키텍처 관점까지 포함해서 리뷰"
+- "merge 전에 위험요소 점검"
+- "strict review" / "senior review"
+
+Behavior requirements when this agent is active:
+
+- Findings first, ordered by severity
+- Focus on regressions, architectural boundary violations, missing tests, and contract drift
+- Do not give approval without evidence
+- Use `Reject / Needs Evidence / Approve` as the final verdict
+- Leave the result as an actual PR comment when PR context is available
+- If posting is not possible, produce a comment-ready PR review draft instead of stopping at chat-only feedback
+
+### QA Agent
+
+When the user explicitly asks for destructive, adversarial, or stress-oriented QA, load and follow:
+
+- `docs/agents/QA_AGENT.md`
 
 ## Commit Convention
 
