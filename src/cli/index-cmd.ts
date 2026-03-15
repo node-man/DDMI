@@ -26,9 +26,10 @@ import {
   upsertVectors,
   deleteByFileId,
 } from "../storage/lance.js";
+import { randomUUID } from "node:crypto";
 import type { FileRecord, VectorRecord, ExplicitLink } from "../types.js";
 import { createRelationEngine } from "../core/relations.js";
-import { deleteRelationsByFileChunks } from "../storage/sqlite.js";
+import { deleteRelationsByFileChunks, enqueueTask } from "../storage/sqlite.js";
 
 const IGNORE_PATTERNS = ["node_modules", ".git", ".ddmi", "dist", ".test-tmp", "eval"];
 
@@ -207,15 +208,35 @@ export async function runIndex(
       relCount += rels.length;
     }
 
-    // 2. 임베딩 유사도 후보 (Level 1)
+    // 2. 임베딩 유사도 후보 → 큐에 추가 (LLM 충돌 감지는 serve worker가 처리)
     const pairs = await relationEngine.findSimilarPairs(changedChunkIds);
 
+    if (pairs.length > 0) {
+      // 청크 내용을 함께 큐에 저장 (worker가 다시 조회할 필요 없도록)
+      const pairsWithContent = pairs.map((p) => {
+        const chunkA = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.a) as { content: string } | undefined;
+        const chunkB = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.b) as { content: string } | undefined;
+        return { aId: p.a, aContent: chunkA?.content ?? "", bId: p.b, bContent: chunkB?.content ?? "", similarity: p.similarity };
+      });
+
+      // 10쌍씩 배치로 큐에 추가
+      for (let i = 0; i < pairsWithContent.length; i += 10) {
+        const batch = pairsWithContent.slice(i, i + 10);
+        enqueueTask(db, {
+          id: randomUUID().slice(0, 16),
+          taskType: "conflict_detection",
+          priority: "batch",
+          payload: { pairs: batch },
+        });
+      }
+    }
+
     if (relCount > 0 || pairs.length > 0) {
-      console.log(`  Relations: ${relCount} explicit, ${pairs.length} similar pairs (threshold 0.85)`);
+      console.log(`  Relations: ${relCount} explicit, ${pairs.length} similar pairs → ${Math.ceil(pairs.length / 10)} tasks queued`);
     }
 
     const stats = relationEngine.stats();
-    if (stats.relations > 0) {
+    if (stats.relations > 0 || stats.openConflicts > 0) {
       console.log(`  Total: ${stats.relations} relations, ${stats.openConflicts} open conflicts`);
     }
   }

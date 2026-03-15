@@ -60,6 +60,14 @@ export async function startServer(projectRoot: string): Promise<void> {
   const aiProvider: AIProvider | null = router.getProvider();
   const level = router.getDegradationLevel();
 
+  // Worker: SQLite 큐에서 태스크를 꺼내 LLM으로 처리
+  const { createWorker } = await import("../ai/queue.js");
+  const worker = createWorker(db, aiProvider);
+  if (aiProvider) {
+    worker.start();
+    console.error(`ddmi worker started: polling every 5s, provider ${aiProvider.name}`);
+  }
+
   // Log provider status to stderr (not stdout — MCP uses stdout)
   const providers = router.getAvailableProviders();
   console.error(
@@ -102,7 +110,8 @@ export async function startServer(projectRoot: string): Promise<void> {
 
   // Server runs until process exits
   process.on("SIGINT", () => {
-    router.shutdown(); // CLI 서브프로세스 정리
+    worker.stop();
+    router.shutdown();
     db.close();
     process.exit(0);
   });

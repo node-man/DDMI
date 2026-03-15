@@ -92,6 +92,20 @@ CREATE TABLE IF NOT EXISTS conflicts (
 );
 CREATE INDEX IF NOT EXISTS idx_conflicts_status ON conflicts(status);
 
+CREATE TABLE IF NOT EXISTS ai_task_queue (
+  id TEXT PRIMARY KEY,
+  task_type TEXT NOT NULL,
+  priority TEXT NOT NULL DEFAULT 'batch',
+  status TEXT NOT NULL DEFAULT 'pending',
+  payload JSON NOT NULL,
+  result JSON,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_aitask_status ON ai_task_queue(status, priority);
+
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
   chunk_id UNINDEXED,
   file_id UNINDEXED,
@@ -383,6 +397,80 @@ function rowToConflict(row: Record<string, unknown>): Conflict {
     resolvedAt: row.resolved_at as string | undefined,
     resolutionNote: row.resolution_note as string | undefined,
     detectedAt: row.detected_at as string,
+  };
+}
+
+// ─── AI Task Queue ──────────────────────────────────────
+
+export interface QueuedTask {
+  id: string;
+  taskType: string;
+  priority: "immediate" | "batch";
+  status: "pending" | "running" | "completed" | "failed";
+  payload: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export function enqueueTask(db: Database.Database, task: Omit<QueuedTask, "status" | "createdAt">): void {
+  db.prepare(
+    `INSERT INTO ai_task_queue (id, task_type, priority, status, payload, created_at)
+     VALUES (?, ?, ?, 'pending', ?, ?)`,
+  ).run(task.id, task.taskType, task.priority, JSON.stringify(task.payload), new Date().toISOString());
+}
+
+export function dequeueTasks(db: Database.Database, batchSize: number = 10, taskType?: string): QueuedTask[] {
+  const where = taskType ? "AND task_type = ?" : "";
+  const params: unknown[] = [batchSize];
+  if (taskType) params.push(taskType);
+
+  // immediate 먼저, 그 다음 batch, 생성 순
+  const rows = db.prepare(
+    `UPDATE ai_task_queue SET status = 'running', started_at = ?
+     WHERE id IN (
+       SELECT id FROM ai_task_queue
+       WHERE status = 'pending' ${where}
+       ORDER BY CASE priority WHEN 'immediate' THEN 0 ELSE 1 END, created_at
+       LIMIT ?
+     )
+     RETURNING *`,
+  ).all(new Date().toISOString(), ...params) as Array<Record<string, unknown>>;
+
+  return rows.map(rowToQueuedTask);
+}
+
+export function completeTask(db: Database.Database, taskId: string, result: Record<string, unknown>): void {
+  db.prepare(
+    `UPDATE ai_task_queue SET status = 'completed', result = ?, completed_at = ? WHERE id = ?`,
+  ).run(JSON.stringify(result), new Date().toISOString(), taskId);
+}
+
+export function failTask(db: Database.Database, taskId: string, error: string): void {
+  db.prepare(
+    `UPDATE ai_task_queue SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`,
+  ).run(error, new Date().toISOString(), taskId);
+}
+
+export function getPendingTaskCount(db: Database.Database): number {
+  const row = db.prepare("SELECT COUNT(*) as count FROM ai_task_queue WHERE status = 'pending'").get() as { count: number };
+  return row.count;
+}
+
+function rowToQueuedTask(row: Record<string, unknown>): QueuedTask {
+  return {
+    id: row.id as string,
+    taskType: row.task_type as string,
+    priority: row.priority as QueuedTask["priority"],
+    status: row.status as QueuedTask["status"],
+    payload: parseJsonField(row.payload),
+    result: row.result ? parseJsonField(row.result) : undefined,
+    error: row.error as string | undefined,
+    createdAt: row.created_at as string,
+    startedAt: row.started_at as string | undefined,
+    completedAt: row.completed_at as string | undefined,
   };
 }
 
