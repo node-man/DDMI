@@ -11,6 +11,7 @@ import { runIndex } from "./index-cmd.js";
 import { runQuery } from "./query.js";
 import { runServe } from "./serve.js";
 import { runEval } from "./eval.js";
+import { runWorker } from "./worker.js";
 
 const program = new Command();
 
@@ -32,8 +33,9 @@ program
   .command("index")
   .description("Index all MD files in the project")
   .option("--incremental", "Only re-index changed files")
+  .option("--provider <name>", "AI provider for conflict detection: claude | codex | gemini | ollama")
   .action(async (options) => {
-    await runIndex(process.cwd(), { incremental: options.incremental });
+    await runIndex(process.cwd(), { incremental: options.incremental, provider: options.provider });
   });
 
 program
@@ -75,6 +77,14 @@ program
       question: options.question !== undefined ? parseInt(options.question, 10) : undefined,
       weightsOverride: Object.keys(weightsOverride).length > 0 ? weightsOverride : undefined,
     });
+  });
+
+program
+  .command("worker")
+  .description("Start AI task queue worker")
+  .option("--provider <name>", "AI provider: claude | codex | gemini | ollama")
+  .action(async (options) => {
+    await runWorker(process.cwd(), { provider: options.provider });
   });
 
 program.parse();

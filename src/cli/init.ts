@@ -36,7 +36,7 @@ recency = 0.15
 redundancy_penalty = 1.5
 
 [ai]
-default_provider = "auto"  # auto | claude | ollama | codex | gemini | llm
+default_provider = "auto"  # auto | claude | codex | gemini | ollama | llm
 ollama_url = "http://localhost:11434"
 ollama_model = "qwen3.5:9b"
 

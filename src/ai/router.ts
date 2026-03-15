@@ -12,7 +12,7 @@ import type {
   DegradationLevel,
   DdmiConfig,
 } from "../types.js";
-import { createCLIProvider, detectCLITools, setRateLimiter } from "./providers/cli-subprocess.js";
+import { createCLIProvider, detectCLITools, setRateLimiter, cleanupProcesses } from "./providers/cli-subprocess.js";
 import { createOllamaProvider, setOllamaRateLimiter } from "./providers/ollama.js";
 import { createTransformersProvider } from "./providers/transformers.js";
 import { createRateLimiter } from "./rate-limiter.js";
@@ -22,6 +22,8 @@ export interface AIRouter {
   getEmbeddingProvider(): EmbeddingProvider;
   getAvailableProviders(): string[];
   getDegradationLevel(): DegradationLevel;
+  /** 종료 시 호출 — 남은 CLI 프로세스 정리 */
+  shutdown(): void;
 }
 
 export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
@@ -39,35 +41,42 @@ export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
   );
 
   // 2. Detect AI providers
+  // 사용자가 명시하면 해당 provider 우선, "auto"면 전부 감지
   const aiProviders: AIProvider[] = [];
   const providerNames: string[] = [];
+  const pref = config.ai.defaultProvider;
 
-  // CLI tools (priority 1)
-  if (config.ai.defaultProvider === "auto" || config.ai.defaultProvider.startsWith("cli")) {
-    const cliTools = await detectCLITools();
-    for (const tool of cliTools) {
-      const provider = createCLIProvider(tool);
-      const healthy = await provider.healthCheck();
-      if (healthy) {
-        aiProviders.push(provider);
-        providerNames.push(`cli:${tool}`);
-      }
+  // 특정 CLI 도구 명시: "claude", "codex", "gemini", "llm"
+  const cliToolNames = ["claude", "codex", "gemini", "llm"];
+  if (cliToolNames.includes(pref)) {
+    // 사용자가 명시한 CLI 도구를 1순위로
+    const provider = createCLIProvider(pref);
+    if (await provider.healthCheck()) {
+      aiProviders.push(provider);
+      providerNames.push(`cli:${pref}`);
     }
   }
 
-  // Ollama (priority 2)
-  if (
-    config.ai.defaultProvider === "auto" ||
-    config.ai.defaultProvider === "ollama"
-  ) {
-    const ollama = createOllamaProvider(
-      config.ai.ollamaUrl,
-      config.ai.ollamaModel,
-    );
-    const healthy = await ollama.healthCheck();
-    if (healthy) {
+  // Ollama
+  if (pref === "auto" || pref === "ollama") {
+    const ollama = createOllamaProvider(config.ai.ollamaUrl, config.ai.ollamaModel);
+    if (await ollama.healthCheck()) {
       aiProviders.push(ollama);
       providerNames.push(ollama.name);
+    }
+  }
+
+  // auto: 나머지 CLI 도구도 감지 (fallback 체인)
+  if (pref === "auto") {
+    const cliTools = await detectCLITools();
+    for (const tool of cliTools) {
+      const name = `cli:${tool}`;
+      if (providerNames.includes(name)) continue; // 중복 방지
+      const provider = createCLIProvider(tool);
+      if (await provider.healthCheck()) {
+        aiProviders.push(provider);
+        providerNames.push(name);
+      }
     }
   }
 
@@ -92,6 +101,10 @@ export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
 
     getDegradationLevel(): DegradationLevel {
       return level;
+    },
+
+    shutdown(): void {
+      cleanupProcesses();
     },
   };
 }

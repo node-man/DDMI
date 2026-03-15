@@ -13,6 +13,8 @@ import type {
   FeedbackRecord,
   FeedbackInput,
   ScoringWeights,
+  Relation,
+  Conflict,
 } from "../types.js";
 
 // ─── Schema ──────────────────────────────────────────────
@@ -62,6 +64,48 @@ CREATE TABLE IF NOT EXISTS feedback_log (
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_token ON feedback_log(feedback_token);
 CREATE INDEX IF NOT EXISTS idx_feedback_outcome ON feedback_log(outcome);
+
+CREATE TABLE IF NOT EXISTS relations (
+  id TEXT PRIMARY KEY,
+  source_chunk_id TEXT NOT NULL,
+  target_chunk_id TEXT NOT NULL,
+  relation_type TEXT NOT NULL,
+  confidence REAL DEFAULT 1.0,
+  extraction_method TEXT,
+  metadata JSON,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_chunk_id);
+CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_chunk_id);
+
+CREATE TABLE IF NOT EXISTS conflicts (
+  id TEXT PRIMARY KEY,
+  chunk_a_id TEXT NOT NULL,
+  chunk_b_id TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  description TEXT,
+  status TEXT DEFAULT 'open',
+  resolved_by TEXT,
+  resolved_at TEXT,
+  resolution_note TEXT,
+  detected_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conflicts_status ON conflicts(status);
+
+CREATE TABLE IF NOT EXISTS ai_task_queue (
+  id TEXT PRIMARY KEY,
+  task_type TEXT NOT NULL,
+  priority TEXT NOT NULL DEFAULT 'batch',
+  status TEXT NOT NULL DEFAULT 'pending',
+  worker_id TEXT,
+  payload JSON NOT NULL,
+  result JSON,
+  error TEXT,
+  created_at TEXT NOT NULL,
+  started_at TEXT,
+  completed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_aitask_status ON ai_task_queue(status, priority);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
   chunk_id UNINDEXED,
@@ -258,6 +302,197 @@ export function saveFeedback(
   );
 
   return record;
+}
+
+// ─── Relations ──────────────────────────────────────────
+
+export function insertRelation(db: Database.Database, r: Relation): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO relations (id, source_chunk_id, target_chunk_id, relation_type, confidence, extraction_method, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(r.id, r.sourceChunkId, r.targetChunkId, r.relationType, r.confidence, r.extractionMethod, JSON.stringify(r.metadata), r.createdAt);
+}
+
+export function insertRelations(db: Database.Database, relations: Relation[]): void {
+  const stmt = db.prepare(
+    `INSERT OR REPLACE INTO relations (id, source_chunk_id, target_chunk_id, relation_type, confidence, extraction_method, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const r of relations) {
+    stmt.run(r.id, r.sourceChunkId, r.targetChunkId, r.relationType, r.confidence, r.extractionMethod, JSON.stringify(r.metadata), r.createdAt);
+  }
+}
+
+export function getRelationsForChunk(db: Database.Database, chunkId: string): Relation[] {
+  const rows = db.prepare(
+    `SELECT * FROM relations WHERE source_chunk_id = ? OR target_chunk_id = ?`,
+  ).all(chunkId, chunkId) as Array<Record<string, unknown>>;
+  return rows.map(rowToRelation);
+}
+
+export function deleteRelationsByFileChunks(db: Database.Database, chunkIds: string[]): void {
+  if (chunkIds.length === 0) return;
+  const placeholders = chunkIds.map(() => "?").join(",");
+  db.prepare(`DELETE FROM relations WHERE source_chunk_id IN (${placeholders}) OR target_chunk_id IN (${placeholders})`).run(...chunkIds, ...chunkIds);
+}
+
+export function getRelationCount(db: Database.Database): number {
+  const row = db.prepare("SELECT COUNT(*) as count FROM relations").get() as { count: number };
+  return row.count;
+}
+
+// ─── Conflicts ──────────────────────────────────────────
+
+export function insertConflict(db: Database.Database, c: Conflict): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO conflicts (id, chunk_a_id, chunk_b_id, severity, description, status, detected_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(c.id, c.chunkAId, c.chunkBId, c.severity, c.description, c.status, c.detectedAt);
+}
+
+export function getOpenConflicts(db: Database.Database): Conflict[] {
+  const rows = db.prepare(
+    `SELECT * FROM conflicts WHERE status = 'open' ORDER BY detected_at DESC`,
+  ).all() as Array<Record<string, unknown>>;
+  return rows.map(rowToConflict);
+}
+
+export function resolveConflict(
+  db: Database.Database,
+  conflictId: string,
+  resolvedBy: string,
+  note: string,
+): void {
+  db.prepare(
+    `UPDATE conflicts SET status = 'resolved', resolved_by = ?, resolved_at = ?, resolution_note = ? WHERE id = ?`,
+  ).run(resolvedBy, new Date().toISOString(), note, conflictId);
+}
+
+export function getConflictCount(db: Database.Database): number {
+  const row = db.prepare("SELECT COUNT(*) as count FROM conflicts WHERE status = 'open'").get() as { count: number };
+  return row.count;
+}
+
+function rowToRelation(row: Record<string, unknown>): Relation {
+  return {
+    id: row.id as string,
+    sourceChunkId: row.source_chunk_id as string,
+    targetChunkId: row.target_chunk_id as string,
+    relationType: row.relation_type as Relation["relationType"],
+    confidence: row.confidence as number,
+    extractionMethod: row.extraction_method as Relation["extractionMethod"],
+    metadata: parseJsonField(row.metadata),
+    createdAt: row.created_at as string,
+  };
+}
+
+function rowToConflict(row: Record<string, unknown>): Conflict {
+  return {
+    id: row.id as string,
+    chunkAId: row.chunk_a_id as string,
+    chunkBId: row.chunk_b_id as string,
+    severity: row.severity as Conflict["severity"],
+    description: (row.description as string) ?? "",
+    status: row.status as Conflict["status"],
+    resolvedBy: row.resolved_by as string | undefined,
+    resolvedAt: row.resolved_at as string | undefined,
+    resolutionNote: row.resolution_note as string | undefined,
+    detectedAt: row.detected_at as string,
+  };
+}
+
+// ─── AI Task Queue ──────────────────────────────────────
+
+export interface QueuedTask {
+  id: string;
+  taskType: string;
+  priority: "immediate" | "batch";
+  status: "pending" | "running" | "completed" | "failed";
+  workerId?: string;
+  payload: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+export function enqueueTask(db: Database.Database, task: Omit<QueuedTask, "status" | "createdAt">): void {
+  db.prepare(
+    `INSERT INTO ai_task_queue (id, task_type, priority, status, payload, created_at)
+     VALUES (?, ?, ?, 'pending', ?, ?)`,
+  ).run(task.id, task.taskType, task.priority, JSON.stringify(task.payload), new Date().toISOString());
+}
+
+export function dequeueTasks(
+  db: Database.Database,
+  batchSize: number = 1,
+  workerId?: string,
+  taskType?: string,
+): QueuedTask[] {
+  const where = taskType ? "AND task_type = ?" : "";
+  const params: unknown[] = [batchSize];
+  if (taskType) params.push(taskType);
+
+  const now = new Date().toISOString();
+  const wid = workerId ?? "default";
+
+  // 원자적: SELECT + UPDATE를 하나의 문으로 — 여러 worker가 동시에 폴링해도 중복 없음
+  const rows = db.prepare(
+    `UPDATE ai_task_queue SET status = 'running', worker_id = '${wid}', started_at = ?
+     WHERE id IN (
+       SELECT id FROM ai_task_queue
+       WHERE status = 'pending' ${where}
+       ORDER BY CASE priority WHEN 'immediate' THEN 0 ELSE 1 END, created_at
+       LIMIT ?
+     )
+     RETURNING *`,
+  ).all(now, ...params) as Array<Record<string, unknown>>;
+
+  return rows.map(rowToQueuedTask);
+}
+
+export function completeTask(db: Database.Database, taskId: string, result: Record<string, unknown>): void {
+  db.prepare(
+    `UPDATE ai_task_queue SET status = 'completed', result = ?, completed_at = ? WHERE id = ?`,
+  ).run(JSON.stringify(result), new Date().toISOString(), taskId);
+}
+
+export function failTask(db: Database.Database, taskId: string, error: string): void {
+  db.prepare(
+    `UPDATE ai_task_queue SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`,
+  ).run(error, new Date().toISOString(), taskId);
+}
+
+export function getPendingTaskCount(db: Database.Database): number {
+  const row = db.prepare("SELECT COUNT(*) as count FROM ai_task_queue WHERE status = 'pending'").get() as { count: number };
+  return row.count;
+}
+
+/** 2분 이상 running 상태인 태스크를 pending으로 되돌림 (worker 크래시/재시작 복구) */
+export function reclaimStaleTasks(db: Database.Database, staleMinutes: number = 2): number {
+  const cutoff = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
+  const result = db.prepare(
+    `UPDATE ai_task_queue SET status = 'pending', worker_id = NULL, started_at = NULL
+     WHERE status = 'running' AND started_at < ?`,
+  ).run(cutoff);
+  return result.changes;
+}
+
+function rowToQueuedTask(row: Record<string, unknown>): QueuedTask {
+  return {
+    id: row.id as string,
+    taskType: row.task_type as string,
+    priority: row.priority as QueuedTask["priority"],
+    status: row.status as QueuedTask["status"],
+    workerId: row.worker_id as string | undefined,
+    payload: parseJsonField(row.payload),
+    result: row.result ? parseJsonField(row.result) : undefined,
+    error: row.error as string | undefined,
+    createdAt: row.created_at as string,
+    startedAt: row.started_at as string | undefined,
+    completedAt: row.completed_at as string | undefined,
+  };
 }
 
 // ─── FTS5 (BM25 search for Level 0) ─────────────────────

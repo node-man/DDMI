@@ -26,13 +26,19 @@ import {
   upsertVectors,
   deleteByFileId,
 } from "../storage/lance.js";
-import type { FileRecord, VectorRecord } from "../types.js";
+import { randomUUID } from "node:crypto";
+import type { FileRecord, VectorRecord, ExplicitLink } from "../types.js";
+import { createRelationEngine } from "../core/relations.js";
+import { deleteRelationsByFileChunks, enqueueTask } from "../storage/sqlite.js";
+import { loadConfig } from "../core/config.js";
+import { createRouter } from "../ai/router.js";
+import { initAILogger } from "../ai/logger.js";
 
 const IGNORE_PATTERNS = ["node_modules", ".git", ".ddmi", "dist", ".test-tmp", "eval"];
 
 export async function runIndex(
   projectRoot: string,
-  options: { incremental?: boolean } = {},
+  options: { incremental?: boolean; provider?: string } = {},
 ): Promise<void> {
   const ddmiDir = join(projectRoot, ".ddmi");
   const dbPath = join(ddmiDir, "index.db");
@@ -61,6 +67,11 @@ export async function runIndex(
   let skipped = 0;
   let errors = 0;
 
+  // 관계 추출용 데이터 수집
+  const allFileIds = new Map<string, string>(); // path → fileId
+  const changedFileLinks: Array<{ fileId: string; links: ExplicitLink[] }> = [];
+  const changedChunkIds: string[] = [];
+
   for (let i = 0; i < mdFiles.length; i++) {
     const filePath = mdFiles[i];
     const relPath = relative(projectRoot, filePath);
@@ -68,6 +79,10 @@ export async function runIndex(
     try {
       const content = readFileSync(filePath, "utf-8");
       const checksum = computeChecksum(content);
+
+      // 모든 파일의 fileId를 수집 (관계 추출에 필요 — skip된 파일도 링크 target이 될 수 있음)
+      const fileIdForMap = generateFileId(relPath);
+      allFileIds.set(relPath, fileIdForMap);
 
       // Incremental: skip unchanged files
       if (options.incremental) {
@@ -142,7 +157,15 @@ export async function runIndex(
         continue;
       }
 
+      // 기존 청크 ID 수집 (관계 삭제용)
+      const oldChunkIds = db.prepare("SELECT id FROM chunks WHERE file_id = ?")
+        .all(fileId)
+        .map((r: any) => r.id as string);
+
       withinTransaction(db, () => {
+        if (oldChunkIds.length > 0) {
+          deleteRelationsByFileChunks(db, oldChunkIds);
+        }
         deleteChunksByFileId(db, fileId);
         deleteFTSByFileId(db, fileId);
         upsertFile(db, fileRecord);
@@ -163,9 +186,94 @@ export async function runIndex(
 
       indexed++;
       console.log(` ${chunks.length} chunks`);
+
+      // 관계 추출용 데이터 수집
+      if (parsed.links.length > 0) {
+        changedFileLinks.push({ fileId, links: parsed.links });
+      }
+      changedChunkIds.push(...chunks.map((c) => c.id));
     } catch (err) {
       errors++;
       console.log(` ERROR: ${(err as Error).message}`);
+    }
+  }
+
+  // ─── 관계 추출 (인덱싱 후) ─────────────────────────────
+  if (indexed > 0) {
+    // provider 지정 시 AI 충돌 감지까지 즉시 실행
+    let aiProvider = null;
+    if (options.provider) {
+      initAILogger(ddmiDir);
+      const config = loadConfig(projectRoot);
+      config.ai.defaultProvider = options.provider;
+      const router = await createRouter(config);
+      aiProvider = router.getProvider();
+      if (aiProvider) {
+        console.log(`  AI provider: ${aiProvider.name}`);
+      }
+    }
+
+    const relationEngine = createRelationEngine({
+      dbPath, embedder, lance, aiProvider,
+    });
+
+    // 1. 명시적 링크 → references 관계 (Level 0)
+    let relCount = 0;
+    for (const { fileId, links } of changedFileLinks) {
+      const rels = relationEngine.extractExplicitLinks(fileId, links, allFileIds);
+      relCount += rels.length;
+    }
+
+    // 2. 임베딩 유사도 후보 (Level 1)
+    const pairs = await relationEngine.findSimilarPairs(changedChunkIds);
+
+    // 3. 충돌 감지
+    let conflictCount = 0;
+    if (pairs.length > 0) {
+      const pairsWithContent = pairs.map((p) => {
+        const chunkA = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.a) as { content: string } | undefined;
+        const chunkB = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.b) as { content: string } | undefined;
+        return { aId: p.a, aContent: chunkA?.content ?? "", bId: p.b, bContent: chunkB?.content ?? "" };
+      });
+
+      if (aiProvider) {
+        // --provider 지정됨: 1쌍씩 즉시 LLM 분석 (Level 2)
+        let aiErrors = 0;
+        for (const pair of pairsWithContent) {
+          try {
+            const conflicts = await relationEngine.detectConflictsAI([pair]);
+            conflictCount += conflicts.length;
+          } catch (err) {
+            aiErrors++;
+            console.log(`  AI error (${pair.aId} vs ${pair.bId}): ${(err as Error).message.slice(0, 60)}`);
+          }
+        }
+        if (aiErrors > 0) {
+          console.log(`  ${aiErrors}/${pairsWithContent.length} pairs failed AI analysis`);
+        }
+      } else {
+        // provider 없음: 쌍 1개 = 태스크 1개 (serve의 worker가 순차 처리)
+        for (const pair of pairsWithContent) {
+          enqueueTask(db, {
+            id: randomUUID().slice(0, 16),
+            taskType: "conflict_detection",
+            priority: "batch",
+            payload: pair,
+          });
+        }
+      }
+    }
+
+    if (relCount > 0 || pairs.length > 0) {
+      const action = aiProvider
+        ? `${conflictCount} conflicts detected`
+        : `${pairs.length} tasks queued`;
+      console.log(`  Relations: ${relCount} explicit, ${pairs.length} similar pairs → ${action}`);
+    }
+
+    const stats = relationEngine.stats();
+    if (stats.relations > 0 || stats.openConflicts > 0) {
+      console.log(`  Total: ${stats.relations} relations, ${stats.openConflicts} open conflicts`);
     }
   }
 
