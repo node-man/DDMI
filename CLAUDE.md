@@ -96,6 +96,17 @@ MVP is split into two phases:
 
 Start with MVP-0, Week 1. See `DDMI.md` § 8 for full roadmap.
 
+## CRITICAL: External API Safety Rules
+
+**2026-03-15 사고**: gemini CLI healthCheck 버그로 1300회 API 폭주 → 할당량 전소. 다시는 이런 일이 없도록:
+
+1. **healthCheck에서 절대 LLM API를 호출하지 않는다** — `which` 명령으로 바이너리 존재만 확인
+2. **모든 LLM 호출은 RateLimiter를 거친다** — 분당 10회, 세션당 100회 하드 리밋
+3. **CLI 도구의 플래그를 반드시 공식 문서로 검증한다** — 추측으로 args를 만들지 않는다 (gemini `prompt` vs `-p` 사고)
+4. **stdin과 args로 프롬프트를 동시에 보내지 않는다** — 중복 전송 방지
+5. **모든 LLM 호출은 .ddmi/ai.log에 JSONL로 기록한다** — prompt/response 전문 포함
+6. **새 CLI provider 추가 시 반드시 단독 테스트 후 통합** — `echo "test" | tool -flags` 수동 확인 필수
+
 ## Important constraints
 
 1. Original .md files are IMMUTABLE — ddmi only reads them and builds an index on top

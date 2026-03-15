@@ -2,13 +2,19 @@
  * CLI Subprocess Provider — claude, codex, gemini, llm 등
  *
  * CLI-first 전략의 핵심: 사용자의 기존 CLI 구독을 활용하여 $0 비용.
- * 긴 프롬프트는 임시 파일 + stdin pipe로 전달.
+ *
+ * 안전장치 (gemini 할당량 폭주 사건 후 추가):
+ * 1. healthCheck = which만 사용 (API 호출 0)
+ * 2. RateLimiter로 분당/세션당 호출 수 제한
+ * 3. 모든 호출을 ai.log에 JSONL로 기록
+ * 4. stdin-only 프롬프트 전달 (중복 전송 방지)
  */
 
 import { execFile } from "node:child_process";
 import type { AIProvider } from "../../types.js";
 import { extractJSON } from "../utils.js";
 import { logAICall } from "../logger.js";
+import type { RateLimiter } from "../rate-limiter.js";
 
 interface CLIConfig {
   command: string;
@@ -44,6 +50,13 @@ const CLI_TOOLS: Record<string, CLIConfig> = {
   },
 };
 
+/** rate limiter는 외부에서 주입. 모든 provider가 공유. */
+let sharedRateLimiter: RateLimiter | null = null;
+
+export function setRateLimiter(limiter: RateLimiter): void {
+  sharedRateLimiter = limiter;
+}
+
 export function createCLIProvider(toolName: string): AIProvider {
   const config = CLI_TOOLS[toolName];
   if (!config) {
@@ -52,15 +65,23 @@ export function createCLIProvider(toolName: string): AIProvider {
     );
   }
 
+  const providerName = `cli:${toolName}`;
+
   return {
-    name: `cli:${toolName}`,
+    name: providerName,
 
     async chat(prompt: string): Promise<string> {
+      // Rate limit check
+      const estimatedTokens = Math.ceil(prompt.length / 4);
+      sharedRateLimiter?.check(providerName, estimatedTokens);
+
       const start = Date.now();
       try {
         const result = await runCLI(config, prompt);
+
+        sharedRateLimiter?.record(providerName);
         logAICall({
-          provider: `cli:${toolName}`,
+          provider: providerName,
           taskType: "chat",
           prompt,
           response: result,
@@ -70,7 +91,7 @@ export function createCLIProvider(toolName: string): AIProvider {
         return result;
       } catch (err) {
         logAICall({
-          provider: `cli:${toolName}`,
+          provider: providerName,
           taskType: "chat",
           prompt,
           response: "",
@@ -84,12 +105,19 @@ export function createCLIProvider(toolName: string): AIProvider {
 
     async chatJSON<T>(prompt: string): Promise<T> {
       const fullPrompt = prompt + "\n\nRespond with valid JSON only.";
+
+      // Rate limit check
+      const estimatedTokens = Math.ceil(fullPrompt.length / 4);
+      sharedRateLimiter?.check(providerName, estimatedTokens);
+
       const start = Date.now();
       try {
         const raw = await runCLI(config, fullPrompt);
         const parsed = extractJSON<T>(raw);
+
+        sharedRateLimiter?.record(providerName);
         logAICall({
-          provider: `cli:${toolName}`,
+          provider: providerName,
           taskType: "chatJSON",
           prompt: fullPrompt,
           response: raw,
@@ -99,7 +127,7 @@ export function createCLIProvider(toolName: string): AIProvider {
         return parsed;
       } catch (err) {
         logAICall({
-          provider: `cli:${toolName}`,
+          provider: providerName,
           taskType: "chatJSON",
           prompt: fullPrompt,
           response: "",
@@ -112,7 +140,7 @@ export function createCLIProvider(toolName: string): AIProvider {
     },
 
     async healthCheck(): Promise<boolean> {
-      // which만으로 설치 여부 판단. 실제 API 호출 안 함 (할당량 절약).
+      // API 호출 절대 안 함. 바이너리 존재 여부만 확인.
       try {
         await which(config.command);
         return true;
@@ -125,6 +153,7 @@ export function createCLIProvider(toolName: string): AIProvider {
 
 /**
  * Detect which CLI tools are available on this system.
+ * which만 사용 — API 호출 0회.
  */
 export async function detectCLITools(): Promise<string[]> {
   const available: string[] = [];
@@ -149,8 +178,6 @@ function runCLI(
   return new Promise((resolve, reject) => {
     const timeout = timeoutMs ?? config.timeoutMs ?? 60000;
 
-    // stdin-only: 프롬프트를 stdin으로만 전달, args에 프롬프트를 넣지 않음
-    // 이렇게 하면 중복 전송 방지 (gemini -p는 stdin을 읽음)
     const child = execFile(
       config.command,
       [...config.args],
@@ -168,7 +195,7 @@ function runCLI(
       },
     );
 
-    // 프롬프트는 stdin으로만 전달
+    // stdin-only: 프롬프트를 stdin으로만 전달
     if (child.stdin) {
       child.stdin.write(prompt);
       child.stdin.end();

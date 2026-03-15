@@ -12,9 +12,10 @@ import type {
   DegradationLevel,
   DdmiConfig,
 } from "../types.js";
-import { createCLIProvider, detectCLITools } from "./providers/cli-subprocess.js";
-import { createOllamaProvider } from "./providers/ollama.js";
+import { createCLIProvider, detectCLITools, setRateLimiter } from "./providers/cli-subprocess.js";
+import { createOllamaProvider, setOllamaRateLimiter } from "./providers/ollama.js";
 import { createTransformersProvider } from "./providers/transformers.js";
+import { createRateLimiter } from "./rate-limiter.js";
 
 export interface AIRouter {
   getProvider(taskType?: AITaskType): AIProvider | null;
@@ -24,6 +25,14 @@ export interface AIRouter {
 }
 
 export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
+  // 0. Rate limiter — 모든 provider가 공유
+  const rateLimiter = createRateLimiter({
+    maxPerMinute: 10,
+    maxPerSession: 100,
+  });
+  setRateLimiter(rateLimiter);
+  setOllamaRateLimiter(rateLimiter);
+
   // 1. Initialize embedding provider (always available)
   const embeddingProvider = await createTransformersProvider(
     config.embedding.model,
