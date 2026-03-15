@@ -1,0 +1,30 @@
+# ddmi index (rebuild from source .md files)
+.ddmi/
+
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test
+coverage/
+
+# Eval experiment artifacts
+eval/results/
+eval/corpus/
+__pycache__/
+*.pyc
