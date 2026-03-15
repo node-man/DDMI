@@ -33,8 +33,9 @@ program
   .command("index")
   .description("Index all MD files in the project")
   .option("--incremental", "Only re-index changed files")
+  .option("--provider <name>", "AI provider for conflict detection: claude | codex | gemini | ollama")
   .action(async (options) => {
-    await runIndex(process.cwd(), { incremental: options.incremental });
+    await runIndex(process.cwd(), { incremental: options.incremental, provider: options.provider });
   });
 
 program

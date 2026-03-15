@@ -30,12 +30,15 @@ import { randomUUID } from "node:crypto";
 import type { FileRecord, VectorRecord, ExplicitLink } from "../types.js";
 import { createRelationEngine } from "../core/relations.js";
 import { deleteRelationsByFileChunks, enqueueTask } from "../storage/sqlite.js";
+import { loadConfig } from "../core/config.js";
+import { createRouter } from "../ai/router.js";
+import { initAILogger } from "../ai/logger.js";
 
 const IGNORE_PATTERNS = ["node_modules", ".git", ".ddmi", "dist", ".test-tmp", "eval"];
 
 export async function runIndex(
   projectRoot: string,
-  options: { incremental?: boolean } = {},
+  options: { incremental?: boolean; provider?: string } = {},
 ): Promise<void> {
   const ddmiDir = join(projectRoot, ".ddmi");
   const dbPath = join(ddmiDir, "index.db");
@@ -194,11 +197,21 @@ export async function runIndex(
 
   // ─── 관계 추출 (인덱싱 후) ─────────────────────────────
   if (indexed > 0) {
+    // provider 지정 시 AI 충돌 감지까지 즉시 실행
+    let aiProvider = null;
+    if (options.provider) {
+      initAILogger(ddmiDir);
+      const config = loadConfig(projectRoot);
+      config.ai.defaultProvider = options.provider;
+      const router = await createRouter(config);
+      aiProvider = router.getProvider();
+      if (aiProvider) {
+        console.log(`  AI provider: ${aiProvider.name}`);
+      }
+    }
+
     const relationEngine = createRelationEngine({
-      dbPath,
-      embedder,
-      lance,
-      aiProvider: null, // LLM 충돌 감지는 ddmi serve에서 별도 실행
+      dbPath, embedder, lance, aiProvider,
     });
 
     // 1. 명시적 링크 → references 관계 (Level 0)
@@ -208,31 +221,38 @@ export async function runIndex(
       relCount += rels.length;
     }
 
-    // 2. 임베딩 유사도 후보 → 큐에 추가 (LLM 충돌 감지는 serve worker가 처리)
+    // 2. 임베딩 유사도 후보 (Level 1)
     const pairs = await relationEngine.findSimilarPairs(changedChunkIds);
 
+    // 3. 충돌 감지
+    let conflictCount = 0;
     if (pairs.length > 0) {
-      // 청크 내용을 함께 큐에 저장 (worker가 다시 조회할 필요 없도록)
       const pairsWithContent = pairs.map((p) => {
         const chunkA = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.a) as { content: string } | undefined;
         const chunkB = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.b) as { content: string } | undefined;
-        return { aId: p.a, aContent: chunkA?.content ?? "", bId: p.b, bContent: chunkB?.content ?? "", similarity: p.similarity };
+        return { aId: p.a, aContent: chunkA?.content ?? "", bId: p.b, bContent: chunkB?.content ?? "" };
       });
 
-      // 10쌍씩 배치로 큐에 추가
-      for (let i = 0; i < pairsWithContent.length; i += 10) {
-        const batch = pairsWithContent.slice(i, i + 10);
+      if (aiProvider) {
+        // --provider 지정됨: 즉시 LLM으로 분석 (Level 2)
+        const conflicts = await relationEngine.detectConflictsAI(pairsWithContent);
+        conflictCount = conflicts.length;
+      } else {
+        // provider 없음: 큐에 넣고 끝 (serve의 worker가 처리)
         enqueueTask(db, {
           id: randomUUID().slice(0, 16),
           taskType: "conflict_detection",
           priority: "batch",
-          payload: { pairs: batch },
+          payload: { pairs: pairsWithContent },
         });
       }
     }
 
     if (relCount > 0 || pairs.length > 0) {
-      console.log(`  Relations: ${relCount} explicit, ${pairs.length} similar pairs → ${Math.ceil(pairs.length / 10)} tasks queued`);
+      const action = aiProvider
+        ? `${conflictCount} conflicts detected`
+        : `${Math.ceil(pairs.length / 10)} tasks queued`;
+      console.log(`  Relations: ${relCount} explicit, ${pairs.length} similar pairs → ${action}`);
     }
 
     const stats = relationEngine.stats();
