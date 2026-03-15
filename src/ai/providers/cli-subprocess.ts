@@ -66,8 +66,8 @@ export function createCLIProvider(toolName: string): AIProvider {
         logAICall({
           provider: `cli:${toolName}`,
           taskType: "chat",
-          promptLength: prompt.length,
-          responseLength: result.length,
+          prompt,
+          response: result,
           durationMs: Date.now() - start,
           success: true,
         });
@@ -76,8 +76,8 @@ export function createCLIProvider(toolName: string): AIProvider {
         logAICall({
           provider: `cli:${toolName}`,
           taskType: "chat",
-          promptLength: prompt.length,
-          responseLength: 0,
+          prompt,
+          response: "",
           durationMs: Date.now() - start,
           success: false,
           error: (err as Error).message,
@@ -95,8 +95,8 @@ export function createCLIProvider(toolName: string): AIProvider {
         logAICall({
           provider: `cli:${toolName}`,
           taskType: "chatJSON",
-          promptLength: fullPrompt.length,
-          responseLength: raw.length,
+          prompt: fullPrompt,
+          response: raw,
           durationMs: Date.now() - start,
           success: true,
         });
@@ -105,8 +105,8 @@ export function createCLIProvider(toolName: string): AIProvider {
         logAICall({
           provider: `cli:${toolName}`,
           taskType: "chatJSON",
-          promptLength: fullPrompt.length,
-          responseLength: 0,
+          prompt: fullPrompt,
+          response: "",
           durationMs: Date.now() - start,
           success: false,
           error: (err as Error).message,

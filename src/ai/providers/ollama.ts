@@ -34,8 +34,8 @@ export function createOllamaProvider(
         logAICall({
           provider: `ollama:${model}`,
           taskType: "chat",
-          promptLength: prompt.length,
-          responseLength: result.length,
+          prompt,
+          response: result,
           durationMs: Date.now() - start,
           success: true,
         });
@@ -44,8 +44,8 @@ export function createOllamaProvider(
         logAICall({
           provider: `ollama:${model}`,
           taskType: "chat",
-          promptLength: prompt.length,
-          responseLength: 0,
+          prompt,
+          response: "",
           durationMs: Date.now() - start,
           success: false,
           error: (err as Error).message,
