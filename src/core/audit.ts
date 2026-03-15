@@ -52,20 +52,24 @@ export function createAuditTrail(dbPath: string): AuditTrail {
       const timestamp = new Date().toISOString();
       const previousHash = getLatestAuditHash(db);
 
-      const hash = computeHash(
+      const eventData = {
         id,
-        input.eventType,
+        eventType: input.eventType,
         timestamp,
-        input.details,
+        actor: input.actor,
+        targetFile: input.targetFile,
+        targetChunkId: input.targetChunkId,
+        details: input.details,
+        rationale: input.rationale,
+        basedOn: input.basedOn,
         previousHash,
-      );
+      };
+
+      const hash = computeHash(eventData);
 
       const event: AuditEvent = {
-        id,
-        timestamp,
-        previousHash,
+        ...eventData,
         hash,
-        ...input,
       };
 
       insertAuditEvent(db, event);
@@ -96,14 +100,8 @@ export function createAuditTrail(dbPath: string): AuditTrail {
           };
         }
 
-        // hash 재계산
-        const expectedHash = computeHash(
-          event.id,
-          event.eventType,
-          event.timestamp,
-          event.details,
-          event.previousHash,
-        );
+        // hash 재계산 (모든 감사 필드 포함)
+        const expectedHash = computeHash(event);
 
         if (event.hash !== expectedHash) {
           return {
@@ -125,13 +123,29 @@ export function createAuditTrail(dbPath: string): AuditTrail {
   };
 }
 
-function computeHash(
-  id: string,
-  eventType: string,
-  timestamp: string,
-  details: Record<string, unknown>,
-  previousHash: string,
-): string {
-  const payload = `${id}|${eventType}|${timestamp}|${JSON.stringify(details)}|${previousHash}`;
+function computeHash(event: {
+  id: string;
+  eventType: string;
+  timestamp: string;
+  actor: string;
+  targetFile?: string;
+  targetChunkId?: string;
+  details: Record<string, unknown>;
+  rationale?: string;
+  basedOn?: string[];
+  previousHash: string;
+}): string {
+  const payload = [
+    event.id,
+    event.eventType,
+    event.timestamp,
+    event.actor,
+    event.targetFile ?? "",
+    event.targetChunkId ?? "",
+    JSON.stringify(event.details),
+    event.rationale ?? "",
+    JSON.stringify(event.basedOn ?? []),
+    event.previousHash,
+  ].join("|");
   return createHash("sha256").update(payload).digest("hex");
 }

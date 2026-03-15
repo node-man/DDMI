@@ -153,6 +153,47 @@ describe("AuditTrail", () => {
     expect(recent).toHaveLength(3);
   });
 
+  it("rationale 조작을 감지한다 (해시에 포함)", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+    const trail = createAuditTrail(dbPath);
+
+    const e = trail.log({
+      eventType: "decision_made",
+      actor: "human",
+      details: { x: 1 },
+      rationale: "원래 이유",
+    });
+
+    // rationale 조작
+    db.prepare("UPDATE audit_log SET rationale = ? WHERE id = ?")
+      .run("조작된 이유", e.id);
+    db.close();
+
+    const result = trail.verifyChain();
+    expect(result.valid).toBe(false);
+    expect(result.brokenAt).toBe(e.id);
+  });
+
+  it("actor 조작을 감지한다 (해시에 포함)", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+    const trail = createAuditTrail(dbPath);
+
+    const e = trail.log({
+      eventType: "file_created",
+      actor: "claude",
+      details: { x: 1 },
+    });
+
+    db.prepare("UPDATE audit_log SET actor = ? WHERE id = ?")
+      .run("attacker", e.id);
+    db.close();
+
+    const result = trail.verifyChain();
+    expect(result.valid).toBe(false);
+  });
+
   it("rationale과 basedOn이 저장/조회된다", () => {
     const dbPath = testDbPath();
     initDatabase(dbPath);

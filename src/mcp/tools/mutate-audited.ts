@@ -3,11 +3,13 @@
  *
  * Agent가 MD 파일을 변경할 때 반드시 이 도구를 통해야 한다.
  * rationale + basedOn 필수 — 변경 이유와 근거 없이는 파일 수정 불가.
- * 변경 후 audit_log에 기록 + 자동 리인덱싱.
+ * 변경 후 audit_log에 기록.
+ * 리인덱싱은 serve --watch의 chokidar가 감지하여 자동 실행.
+ * watch 없이 실행 시에는 ddmi index --incremental을 수동 실행.
  */
 
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join, dirname, resolve } from "node:path";
 import { createAuditTrail } from "../../core/audit.js";
 
 export const TOOL_NAME = "mutate_audited";
@@ -75,7 +77,13 @@ export async function handleMutateAudited(
     return error("target file path is required.");
   }
 
+  // Path traversal 방지: projectRoot 밖으로 나가는 경로 차단
   const filePath = join(projectRoot, target);
+  const resolvedPath = resolve(filePath);
+  const rootResolved = resolve(projectRoot);
+  if (!resolvedPath.startsWith(rootResolved + "/") && resolvedPath !== rootResolved) {
+    return error(`Path traversal blocked: "${target}" escapes project root.`);
+  }
   const trail = createAuditTrail(dbPath);
 
   try {
@@ -206,7 +214,10 @@ function replaceSectionContent(
 
 function success(message: string, auditId: string) {
   return {
-    content: [{ type: "text" as const, text: `${message}\nAudit ID: ${auditId}` }],
+    content: [{
+      type: "text" as const,
+      text: `${message}\nAudit ID: ${auditId}\nNote: Run 'ddmi index --incremental' to update the search index, or use 'ddmi serve --watch' for automatic reindexing.`,
+    }],
   };
 }
 
