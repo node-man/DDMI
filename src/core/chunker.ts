@@ -23,10 +23,12 @@ export function generateFileId(filePath: string): string {
   return createHash("sha256").update(filePath).digest("hex").slice(0, 16);
 }
 
-/** 청크 ID 생성 (파일ID + 섹션경로 해시) */
+/** 청크 ID 생성 (파일ID + 섹션경로 + 인덱스 해시) */
+let chunkSeq = 0;
 function generateChunkId(fileId: string, sectionPath: string): string {
+  chunkSeq++;
   return createHash("sha256")
-    .update(`${fileId}:${sectionPath}`)
+    .update(`${fileId}:${sectionPath}:${chunkSeq}`)
     .digest("hex")
     .slice(0, 16);
 }

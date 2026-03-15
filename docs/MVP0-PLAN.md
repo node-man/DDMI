@@ -6,7 +6,7 @@
 
 - [x] Day 1 가설 검증 완료 (retrieval 효율 확인, hybrid > top-K 확인)
 - [x] 프로젝트 scaffolding (package.json, tsconfig.json)
-- [ ] `npm install` (의존성 설치)
+- [x] `npm install` (의존성 설치)
 
 ## Week 1: Semantic Index Core
 
@@ -42,9 +42,9 @@ deleteByFileId(conn, fileId: string): Promise<void>
 - `relations`, `conflicts`, `audit_log`, `agent_state`는 MVP-1
 
 **검증:**
-- [ ] SQLite: 파일/청크 CRUD 단위 테스트
-- [ ] LanceDB: 벡터 저장 → 검색 → top-K 반환 테스트
-- [ ] 원자적 업데이트: SQLite + LanceDB 트랜잭션 테스트
+- [x] SQLite: 파일/청크 CRUD 단위 테스트 (14 tests)
+- [x] LanceDB: 벡터 저장 → 검색 → top-K 반환 테스트 (7 tests)
+- [x] 원자적 업데이트: SQLite + LanceDB 트랜잭션 테스트
 
 ### Day 2-3: Parser + Chunker
 
@@ -92,11 +92,11 @@ estimateTokens(text: string): number  // len / 3 for Korean
 4. 코드블록은 포함 섹션에 유지
 
 **검증:**
-- [ ] frontmatter 있는/없는 파일 파싱
-- [ ] 중첩 헤딩 트리 (##, ###, ####)
-- [ ] 500토큰 초과 섹션 재분할
-- [ ] 50토큰 미만 섹션 병합
-- [ ] 한국어/영어 혼합 문서
+- [x] frontmatter 있는/없는 파일 파싱 (parser 15 tests)
+- [x] 중첩 헤딩 트리 (##, ###, ####)
+- [x] 500토큰 초과 섹션 재분할 (chunker 16 tests)
+- [x] 50토큰 미만 섹션 병합
+- [x] 한국어/영어 혼합 문서
 
 ### Day 3-4: Embedder
 
@@ -123,10 +123,10 @@ createEmbedder(modelName?: string): Embedder
 - 임베딩 입력: `${sectionPath}\n${content}` (섹션 경로를 앞에 붙여 컨텍스트 제공)
 
 **검증:**
-- [ ] 모델 로드 + 단일 텍스트 임베딩
-- [ ] 배치 임베딩 (32개)
-- [ ] 출력 차원 = 384
-- [ ] 한국어 텍스트 임베딩 정상 작동
+- [x] 모델 로드 + 단일 텍스트 임베딩 (embedder 7 tests)
+- [x] 배치 임베딩 (32개)
+- [x] 출력 차원 = 384
+- [x] 한국어 텍스트 임베딩 정상 작동 + 코사인 유사도 검증
 
 ### Day 4-5: CLI (init + index) + 통합
 
@@ -151,10 +151,10 @@ createEmbedder(modelName?: string): Embedder
 5. 완료 리포트 (파일 수, 청크 수, 소요 시간)
 
 **검증:**
-- [ ] `ddmi init` → `.ddmi/` 생성 확인
-- [ ] `ddmi index` → 50개 MD 파일 인덱싱 < 30초
-- [ ] 증분 인덱싱: 1개 파일 변경 → 해당 파일만 리인덱싱
-- [ ] 에러 시 나머지 파일 계속 인덱싱
+- [x] `ddmi init` → `.ddmi/` + config.toml + index.db + .mcp.json 생성 확인
+- [x] `ddmi index` → 69개 MD 파일 인덱싱 7.0초 (목표 30초 이내)
+- [x] 증분 인덱싱: `--incremental` → 변경 없으면 69파일 0.0초 (전부 skip)
+- [x] 에러 시 나머지 파일 계속 인덱싱 (chunk ID 충돌 수정 후 0 errors)
 
 ---
 
