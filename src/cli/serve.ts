@@ -16,8 +16,15 @@ export async function runServe(
     await startWatcher(projectRoot);
   }
 
-  // Dashboard (localhost:3000)
+  // 초기화 확인
   const ddmiDir = join(projectRoot, ".ddmi");
+  const { existsSync } = await import("node:fs");
+  if (!existsSync(ddmiDir)) {
+    console.error("Error: ddmi not initialized. Run 'ddmi init' first.");
+    process.exit(1);
+  }
+
+  // Dashboard (localhost:3000)
   const dbPath = join(ddmiDir, "index.db");
   const db = initDatabase(dbPath);
   startDashboard(db, dbPath, options.port ?? 3000);

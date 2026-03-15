@@ -6,6 +6,8 @@
  */
 
 import { Command } from "commander";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { runInit } from "./init.js";
 import { runIndex } from "./index-cmd.js";
 import { runQuery } from "./query.js";
@@ -22,7 +24,7 @@ program
   .description(
     "Document-Driven Memory Infrastructure — drift monitor & integrity layer for AI agents",
   )
-  .version("0.1.0");
+  .version(JSON.parse(readFileSync(join(import.meta.dirname, "../../package.json"), "utf-8")).version);
 
 program
   .command("init")
