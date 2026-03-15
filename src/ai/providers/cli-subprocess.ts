@@ -6,10 +6,6 @@
  */
 
 import { execFile } from "node:child_process";
-import { writeFileSync, unlinkSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { randomUUID } from "node:crypto";
 import type { AIProvider } from "../../types.js";
 import { extractJSON } from "../utils.js";
 import { logAICall } from "../logger.js";
@@ -36,7 +32,7 @@ const CLI_TOOLS: Record<string, CLIConfig> = {
   },
   gemini: {
     command: "gemini",
-    args: ["prompt"],
+    args: ["-p"],
     name: "Gemini CLI",
     timeoutMs: 60000,
   },
@@ -153,47 +149,28 @@ function runCLI(
   return new Promise((resolve, reject) => {
     const timeout = timeoutMs ?? config.timeoutMs ?? 60000;
 
-    // For long prompts, use a temp file
-    let tmpPath: string | null = null;
-    let args = [...config.args];
-
-    if (prompt.length > 2000) {
-      tmpPath = join(tmpdir(), `ddmi-prompt-${randomUUID()}.txt`);
-      writeFileSync(tmpPath, prompt, "utf-8");
-    }
-
+    // stdin-only: 프롬프트를 stdin으로만 전달, args에 프롬프트를 넣지 않음
+    // 이렇게 하면 중복 전송 방지 (gemini -p는 stdin을 읽음)
     const child = execFile(
       config.command,
-      args,
+      [...config.args],
       {
         timeout,
         maxBuffer: 10 * 1024 * 1024,
         env: { ...process.env },
       },
       (error, stdout, stderr) => {
-        // Clean up temp file
-        if (tmpPath) {
-          try { unlinkSync(tmpPath); } catch { /* ignore */ }
-        }
-
         if (error) {
           reject(new Error(`${config.name} failed: ${error.message}\nstderr: ${stderr}`));
           return;
         }
-
         resolve(stdout.trim());
       },
     );
 
-    // Feed prompt via stdin
+    // 프롬프트는 stdin으로만 전달
     if (child.stdin) {
-      if (tmpPath) {
-        // Pipe temp file content
-        const content = prompt;
-        child.stdin.write(content);
-      } else {
-        child.stdin.write(prompt);
-      }
+      child.stdin.write(prompt);
       child.stdin.end();
     }
   });
