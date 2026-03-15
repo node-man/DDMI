@@ -19,9 +19,9 @@
 
 ### 무엇이 아닌가
 
-- ✕ MD 에디터/뷰어가 아니다 (Typora, Obsidian과 경쟁하지 않는다)
+- ✕ MD 에디터가 아니다 (Typora, Obsidian의 편집 기능과 경쟁하지 않는다)
 - ✕ 단순 검색 엔진이 아니다 (grep/ripgrep 대체가 아니다)
-- ✕ 예쁜 그래프 시각화 도구가 아니다 (장식용 그래프는 AI가 대체한다)
+- ✕ 장식용 그래프가 아니다 — 충돌, 의존성, 시간축, 중요도를 함께 시각화하는 **운영 그래프**다
 - ✕ 포맷 변환 도구가 아니다 (MD→PDF는 범용 AI가 이미 잘 한다)
 
 ### 첫 번째 고객
@@ -1180,30 +1180,122 @@ ddmi의 존재 이유인 "큐레이션 > 전체 덤프" 가설을 **구현 전�
 
 ## 9. Post-MVP — 확장 로드맵
 
-### Phase 2 (Month 3~4): Multi-agent 강화
+### Phase 2 (Month 3~4): Mission Control — 시각화 + 탐색
 
-- shared_memory MCP 도구 구현 (MVP에서 제외한 것)
-- event_broadcast MCP 도구 구현 (MVP에서 제외한 것)
-- SSE 기반 실시간 Dashboard 업데이트
-- shared_memory 고도화 (분산 락, 작업 큐)
-- Agent 간 작업 위임 프로토콜
+> 기본기 위에 차별화를 얹는다. 모든 기능이 정성스럽게, 프로답게.
+
+#### 2-1. Knowledge Explorer — 프로젝트의 지식 지형을 보여준다
+
+**파일 탐색기 (File Navigator)**
+- 단순한 파일 목록이 아니다. 각 파일에 **살아 있는 메타데이터**가 붙는다:
+  - docType 배지 (decision, spec, meeting, research)
+  - 완성도 게이지 (체크리스트 기반)
+  - 최근 Agent 활용 빈도 (feedback_log에서 계산 — 많이 참조되는 문서가 위로)
+  - 마지막 수정 시간 + 수정한 Actor (human or agent)
+  - 관련 충돌 수 (빨간 뱃지)
+- 트리 뷰 + 리스트 뷰 전환. docType별 그룹핑.
+
+**MD 프리뷰 (Document Viewer)**
+- 렌더링된 마크다운 + **ddmi 어노테이션 오버레이**:
+  - 각 청크의 스코어링 히트맵 (최근 쿼리에서 얼마나 자주 선택되었는가)
+  - 충돌 관련 섹션은 빨간 사이드바로 표시 — 클릭하면 상대 청크와 diff 뷰
+  - 인라인 관계 표시: 이 섹션을 참조하는 다른 문서 목록 (backlinks)
+  - 감사 이력 사이드패널: 이 파일의 변경 타임라인
+
+**검색 (Unified Search)**
+- 키워드 + 시맨틱 + 관계 인식 통합 검색
+- "캐시 전략" 검색 시: 키워드 매칭 결과 + 의미적으로 유사한 청크 + 관계로 연결된 문서
+- 검색 결과에 각 청크의 **스코어링 breakdown** 표시 (왜 이 결과가 나왔는지 투명하게)
+- 필터: docType, 날짜 범위, 작성자, 충돌 여부
+
+#### 2-2. Knowledge Graph — 프로젝트의 신경망을 시각화한다
+
+**관계 그래프 (D3.js force-directed)**
+- 노드 = 파일 (크기 = 토큰 수, 색상 = docType)
+- 엣지 = 관계 (파란선 = references, 초록선 = depends_on, 빨간선 = contradicts)
+- **시간 슬라이더**: 드래그하면 프로젝트가 시간에 따라 성장하는 모습을 애니메이션으로
+- 노드 클릭 → 해당 파일의 프리뷰 + 관련 관계 목록 + 감사 이력
+- 충돌 노드는 펄스 애니메이션으로 주의 환기
+- 시맨틱 클러스터링: 유사한 주제의 문서들이 자연스럽게 모이도록 (임베딩 2D 투영)
+
+**청크 수준 줌 (Chunk-level Zoom)**
+- 파일 노드를 더블클릭하면 내부 청크들이 펼쳐짐
+- 청크 간 관계 (같은 파일 내 + 다른 파일)를 세밀하게 탐색
+- 스코어링 중요도에 따라 청크 노드 크기 변화
+
+#### 2-3. Conflict Resolution Studio — 충돌을 해결하는 전용 공간
+
+**Diff 뷰 (Side-by-Side)**
+- 두 충돌 청크를 나란히 표시 + 차이점 하이라이트
+- 각 청크의 출처 파일, 작성 시점, 작성자 정보
+- AI 분석 결과: "왜 이것이 충돌인가" 한 문장 설명
+
+**충돌 컨텍스트 맵**
+- 충돌 쌍을 중심으로 관련 문서들의 미니 그래프
+- "이 결정을 바꾸면 영향받는 문서 N개" 시각적으로 표시
+
+**Decision Gate 워크플로**
+- 승인 / 거부 / 수정 지시 — 각 액션이 audit_log에 기록
+- 수정 지시 시: 자연어로 방향을 입력 → Agent가 재작업 (mutate_audited 연동)
+- 해결 이력: 이전에 비슷한 충돌을 어떻게 해결했는지 참고
+
+#### 2-4. Audit Timeline — 프로젝트의 기억을 시간으로 풀어낸다
+
+**인터랙티브 타임라인**
+- 수직 타임라인: 각 이벤트가 카드로 표시
+- 이벤트 카드: Actor 아바타 + 행동 + 대상 파일 + rationale
+- 필터: Actor별, 이벤트 유형별, 파일별
+- 기간 선택: "지난 1주" / "이번 스프린트" / 전체
+- 해시 체인 무결성 상태: 타임라인 상단에 "Chain Valid ✓" 또는 "BROKEN at event X ✗"
+
+**변경 영향 추적 (Impact Trace)**
+- 특정 이벤트를 클릭 → "이 변경 이후에 발생한 모든 관련 이벤트" 하이라이트
+- basedOn 관계를 따라가는 역추적: "이 결정의 근거는?" → 원본 문서까지
+
+#### 2-5. Health Dashboard — 프로젝트의 바이탈 사인
+
+**건강도 계기판**
+- 전체 일관성 점수 (conflicts / total relations 기반)
+- 문서 커버리지 (frontmatter 누락, 체크리스트 미완료)
+- Agent 활용 효율 (context_assemble 결과 중 실제 사용된 비율 — feedback 기반)
+- 트렌드 그래프: 일관성, 충돌 수, Agent 활용률의 주간/월간 추이
+
+**조기 경고**
+- "스펙 X가 3개월간 업데이트 안 됨 — 현재 코드와 괴리 위험"
+- "결정문서 Y와 스펙 Z 사이에 새 충돌 감지 — 확인 필요"
+- "피드백 데이터가 100건 이상 → 가중치 자동 튜닝 실행 권장"
+
+#### 기술 선택
+
+| 영역 | 도구 | 이유 |
+|------|------|------|
+| 프론트엔드 프레임워크 | React + Vite | 컴포넌트 재사용, 생태계 |
+| 그래프 시각화 | D3.js + @visx | 커스터마이징 자유도, force-directed |
+| Diff 뷰 | diff2html 또는 커스텀 | side-by-side 렌더링 |
+| 차트 | Recharts 또는 @visx | React 네이티브 통합 |
+| 실시간 | SSE (Server-Sent Events) | WebSocket보다 단순, 단방향 |
+| MD 렌더링 | react-markdown + remark | 기존 파서 생태계 재사용 |
+
+### Phase 3 (Month 5~6): Intelligence + Multi-agent
+
+> 시각화 기반 위에 지능과 협업을 얹는다.
+
+- Document-level 임베딩 → 파일 간 클러스터링 (Knowledge Graph에 시맨틱 군집 표시)
+- Entity-level 임베딩 → 관계 그래프 노드 벡터화
+- 피드백 기반 가중치 자동 튜닝 (100건 이상 수집 시 활성화)
+- 프로젝트 건강도 자동 진단 + 조기 경고 시스템
+- shared_memory MCP 도구 (Agent 간 지식 공유)
+- event_broadcast MCP 도구 (Agent 간 이벤트 전파)
 - 동시 수정 충돌 방지 (optimistic locking)
+- SSE 기반 실시간 Dashboard 업데이트
 
-### Phase 3 (Month 4~5): Intelligence 고도화
+### Phase 4 (Month 7~8): 생태계
 
-- Document-level 임베딩 추가 (파일 간 클러스터링)
-- Entity-level 임베딩 추가 (관계 그래프 노드 벡터화)
-- 시간축 관계 추적 (문서 버전 진화 그래프)
-- 프로젝트 건강도 자동 진단 ("6개월간 안 건드린 스펙이 3개")
-- 자동 문서 유형 분류 (frontmatter 없어도 AI가 판단)
+- VS Code Extension (인라인 충돌 경고, Knowledge Graph 패널, 감사 이력)
+- GitHub Action (PR 시 문서 일관성 자동 체크 + 충돌 리포트)
+- Obsidian Plugin (기존 사용자 마이그레이션 경로)
+- 팀 서버 모드 (인증 + 권한 + SSE)
 - 크로스 프로젝트 지식 연결
-
-### Phase 4 (Month 4~6): 생태계
-
-- VS Code Extension (인라인 힌트, 충돌 경고)
-- Obsidian Plugin (기존 사용자 마이그레이션)
-- GitHub Action (PR 시 문서 일관성 자동 체크)
-- 팀 서버 모드 (SSE + 인증 + 권한)
 
 ---
 
