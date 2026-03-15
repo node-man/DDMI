@@ -14,6 +14,7 @@ import {
   getFileCount,
   getChunkCount,
   searchBM25,
+  getOpenConflicts,
 } from "../storage/sqlite.js";
 import {
   initVectorStore,
@@ -76,17 +77,27 @@ export async function createCurator(deps: CuratorDeps) {
         weights,
       );
 
-      // 4. Budget packing with redundancy + diversity
-      const selected = packBudget(scored, maxTokens, weights, req.exclude);
+      // 4. Budget allocation: 90% direct, 10% conflicts
+      const conflictBudget = Math.floor(maxTokens * 0.10);
+      const directBudget = maxTokens - conflictBudget;
+
+      // 4a. Direct context packing
+      const selected = packBudget(scored, directBudget, weights, req.exclude);
+
+      // 4b. Conflict context (open conflicts involving selected chunks)
+      const conflictBlocks = getConflictBlocks(deps.dbPath, selected, conflictBudget);
 
       // 5. Assemble
-      const blocks: ContextBlock[] = selected.map((s) => ({
-        content: s.result.content,
-        source: `${s.result.filePath}#${s.result.sectionPath}`,
-        type: s.result.docType,
-        relevance: s.finalScore,
-        tokens: s.result.tokenCount,
-      }));
+      const blocks: ContextBlock[] = [
+        ...selected.map((s) => ({
+          content: s.result.content,
+          source: `${s.result.filePath}#${s.result.sectionPath}`,
+          type: s.result.docType,
+          relevance: s.finalScore,
+          tokens: s.result.tokenCount,
+        })),
+        ...conflictBlocks,
+      ];
 
       const totalTokens = blocks.reduce((sum, b) => sum + b.tokens, 0);
       const coverageScore = computeCoverage(candidates, selected);
@@ -350,6 +361,45 @@ function cosine(a: number[], b: number[]): number {
   }
   const denom = Math.sqrt(na) * Math.sqrt(nb);
   return denom === 0 ? 0 : dot / denom;
+}
+
+// ─── Conflict Blocks ─────────────────────────────────────
+
+function getConflictBlocks(
+  dbPath: string,
+  selected: ScoredCandidate[],
+  budget: number,
+): ContextBlock[] {
+  const db = initDatabase(dbPath);
+  try {
+    const conflicts = getOpenConflicts(db);
+    if (conflicts.length === 0) return [];
+
+    const selectedIds = new Set(selected.map((s) => s.result.id));
+    const blocks: ContextBlock[] = [];
+    let usedTokens = 0;
+
+    for (const c of conflicts) {
+      // 선택된 청크와 관련된 충돌만 포함
+      if (!selectedIds.has(c.chunkAId) && !selectedIds.has(c.chunkBId)) continue;
+
+      const warningBlock: ContextBlock = {
+        content: `⚠ CONFLICT (${c.severity}): ${c.description}\nChunks: ${c.chunkAId} vs ${c.chunkBId}`,
+        source: `conflict:${c.id}`,
+        type: "conflict",
+        relevance: c.severity === "high" ? 1.0 : c.severity === "medium" ? 0.7 : 0.4,
+        tokens: Math.ceil(c.description.length / 4) + 20,
+      };
+
+      if (usedTokens + warningBlock.tokens > budget) break;
+      blocks.push(warningBlock);
+      usedTokens += warningBlock.tokens;
+    }
+
+    return blocks;
+  } finally {
+    db.close();
+  }
 }
 
 function parseDate(s: string): Date | null {

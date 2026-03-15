@@ -26,7 +26,9 @@ import {
   upsertVectors,
   deleteByFileId,
 } from "../storage/lance.js";
-import type { FileRecord, VectorRecord } from "../types.js";
+import type { FileRecord, VectorRecord, ExplicitLink } from "../types.js";
+import { createRelationEngine } from "../core/relations.js";
+import { deleteRelationsByFileChunks } from "../storage/sqlite.js";
 
 const IGNORE_PATTERNS = ["node_modules", ".git", ".ddmi", "dist", ".test-tmp", "eval"];
 
@@ -60,6 +62,11 @@ export async function runIndex(
   let indexed = 0;
   let skipped = 0;
   let errors = 0;
+
+  // 관계 추출용 데이터 수집
+  const allFileIds = new Map<string, string>(); // path → fileId
+  const changedFileLinks: Array<{ fileId: string; links: ExplicitLink[] }> = [];
+  const changedChunkIds: string[] = [];
 
   for (let i = 0; i < mdFiles.length; i++) {
     const filePath = mdFiles[i];
@@ -102,6 +109,7 @@ export async function runIndex(
 
       // Store (atomic: SQLite + LanceDB)
       const fileId = generateFileId(relPath);
+      allFileIds.set(relPath, fileId);
       const now = new Date().toISOString();
       const fileStats = statSync(filePath);
 
@@ -142,7 +150,15 @@ export async function runIndex(
         continue;
       }
 
+      // 기존 청크 ID 수집 (관계 삭제용)
+      const oldChunkIds = db.prepare("SELECT id FROM chunks WHERE file_id = ?")
+        .all(fileId)
+        .map((r: any) => r.id as string);
+
       withinTransaction(db, () => {
+        if (oldChunkIds.length > 0) {
+          deleteRelationsByFileChunks(db, oldChunkIds);
+        }
         deleteChunksByFileId(db, fileId);
         deleteFTSByFileId(db, fileId);
         upsertFile(db, fileRecord);
@@ -163,9 +179,44 @@ export async function runIndex(
 
       indexed++;
       console.log(` ${chunks.length} chunks`);
+
+      // 관계 추출용 데이터 수집
+      if (parsed.links.length > 0) {
+        changedFileLinks.push({ fileId, links: parsed.links });
+      }
+      changedChunkIds.push(...chunks.map((c) => c.id));
     } catch (err) {
       errors++;
       console.log(` ERROR: ${(err as Error).message}`);
+    }
+  }
+
+  // ─── 관계 추출 (인덱싱 후) ─────────────────────────────
+  if (indexed > 0) {
+    const relationEngine = createRelationEngine({
+      dbPath,
+      embedder,
+      lance,
+      aiProvider: null, // LLM 충돌 감지는 ddmi serve에서 별도 실행
+    });
+
+    // 1. 명시적 링크 → references 관계 (Level 0)
+    let relCount = 0;
+    for (const { fileId, links } of changedFileLinks) {
+      const rels = relationEngine.extractExplicitLinks(fileId, links, allFileIds);
+      relCount += rels.length;
+    }
+
+    // 2. 임베딩 유사도 후보 (Level 1)
+    const pairs = await relationEngine.findSimilarPairs(changedChunkIds);
+
+    if (relCount > 0 || pairs.length > 0) {
+      console.log(`  Relations: ${relCount} explicit, ${pairs.length} similar pairs (threshold 0.85)`);
+    }
+
+    const stats = relationEngine.stats();
+    if (stats.relations > 0) {
+      console.log(`  Total: ${stats.relations} relations, ${stats.openConflicts} open conflicts`);
     }
   }
 
