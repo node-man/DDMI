@@ -12,6 +12,7 @@ import { runQuery } from "./query.js";
 import { runServe } from "./serve.js";
 import { runEval } from "./eval.js";
 import { runWorker } from "./worker.js";
+import { runStatus } from "./status.js";
 import { runAudit } from "./audit.js";
 
 const program = new Command();
@@ -51,10 +52,16 @@ program
 
 program
   .command("serve")
-  .description("Start MCP server")
+  .description("Start MCP server + Dashboard")
   .option("--watch", "Watch for file changes and auto-reindex")
+  .option("--dashboard-only", "Start Dashboard without MCP server (http://localhost:3000)")
+  .option("--port <n>", "Dashboard port (default: 3000)")
   .action(async (options) => {
-    await runServe(process.cwd(), { watch: options.watch });
+    await runServe(process.cwd(), {
+      watch: options.watch,
+      dashboardOnly: options.dashboardOnly,
+      port: options.port ? parseInt(options.port, 10) : undefined,
+    });
   });
 
 program
@@ -78,6 +85,13 @@ program
       question: options.question !== undefined ? parseInt(options.question, 10) : undefined,
       weightsOverride: Object.keys(weightsOverride).length > 0 ? weightsOverride : undefined,
     });
+  });
+
+program
+  .command("status")
+  .description("Show project health status")
+  .action(async () => {
+    await runStatus(process.cwd());
   });
 
 program

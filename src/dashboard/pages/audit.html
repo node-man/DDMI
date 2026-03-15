@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>ddmi — Audit Trail</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+</head>
+<body>
+  <nav>
+    <a href="/">Health</a>
+    <a href="/conflicts">Conflicts</a>
+    <a href="/audit" class="active">Audit</a>
+  </nav>
+
+  <h1>Audit Trail</h1>
+
+  <div id="audit" hx-get="/api/audit?limit=50" hx-trigger="load" hx-swap="innerHTML">
+    Loading...
+  </div>
+
+  <script>
+    document.addEventListener('htmx:afterSwap', (e) => {
+      if (e.detail.target.id !== 'audit') return;
+      const data = JSON.parse(e.detail.xhr.responseText);
+      if (data.length === 0) {
+        e.detail.target.innerHTML = '<div class="card">No audit events.</div>';
+        return;
+      }
+      e.detail.target.innerHTML = `
+        <table>
+          <thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>File</th><th>Rationale</th></tr></thead>
+          <tbody>
+            ${data.map(e => `
+              <tr>
+                <td>${e.timestamp.slice(0,19)}</td>
+                <td>${e.eventType}</td>
+                <td>${e.actor}</td>
+                <td>${e.targetFile || '-'}</td>
+                <td>${e.rationale || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      `;
+    });
+  </script>
+</body>
+</html>
