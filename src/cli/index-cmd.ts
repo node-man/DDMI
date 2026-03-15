@@ -129,14 +129,22 @@ export async function runIndex(
         tokenCount: chunk.tokenCount,
       }));
 
+      // Atomic update: LanceDB first (more likely to fail), then SQLite
+      await deleteByFileId(lance, fileId);
+      try {
+        await upsertVectors(lance, vectorRecords);
+      } catch (lanceErr) {
+        // LanceDB failed after delete — file will be re-indexed next run
+        console.log(` LANCE ERROR: ${(lanceErr as Error).message}`);
+        errors++;
+        continue;
+      }
+
       withinTransaction(db, () => {
         deleteChunksByFileId(db, fileId);
         upsertFile(db, fileRecord);
         insertChunks(db, chunks);
       });
-
-      await deleteByFileId(lance, fileId);
-      await upsertVectors(lance, vectorRecords);
 
       indexed++;
       console.log(` ${chunks.length} chunks`);

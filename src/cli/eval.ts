@@ -14,9 +14,9 @@ import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { createEmbedder } from "../core/embedder.js";
 import { createCurator, type CuratorDeps } from "../core/curator.js";
+import { loadConfig } from "../core/config.js";
 import { initVectorStore } from "../storage/lance.js";
 import type { ScoringWeights } from "../types.js";
-import { DEFAULT_SCORING_WEIGHTS } from "../types.js";
 
 interface EvalQuestion {
   id: number;
@@ -114,8 +114,9 @@ export async function runEval(
   const embedder = await createEmbedder();
   const lance = await initVectorStore(lancePath);
 
+  const config = loadConfig(projectRoot);
   const weights: ScoringWeights = {
-    ...DEFAULT_SCORING_WEIGHTS,
+    ...config.curator.weights,
     ...options.weightsOverride,
   };
 

@@ -115,6 +115,11 @@ export async function createCurator(deps: CuratorDeps) {
   };
 }
 
+// ─── Exported for testing ────────────────────────────────
+
+export { scoreCandidates, packBudget, computeKeywordBoost, computeCoverage };
+export type { ScoredCandidate };
+
 // ─── Scoring ─────────────────────────────────────────────
 
 interface ScoredCandidate {
@@ -207,11 +212,17 @@ function computeKeywordBoost(
   const target = `${content} ${sectionPath} ${filePath}`.toLowerCase();
   let matches = 0;
 
+  // target with whitespace collapsed for Korean substring matching
+  const targetCompact = target.replace(/\s+/g, "");
+
   for (const term of terms) {
     if (target.includes(term)) {
       matches += 1;
       // Identifiers, numbers, filenames get extra boost
       if (/[\d_.\-]/.test(term)) matches += 0.5;
+    } else if (term.length >= 2 && targetCompact.includes(term)) {
+      // Korean compound word match: "캐시전략" → "캐시 전략"
+      matches += 0.8;
     }
   }
 

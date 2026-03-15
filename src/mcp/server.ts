@@ -14,6 +14,7 @@ import {
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createEmbedder } from "../core/embedder.js";
+import { loadConfig } from "../core/config.js";
 import { initVectorStore } from "../storage/lance.js";
 import { initDatabase } from "../storage/sqlite.js";
 import type { CuratorDeps } from "../core/curator.js";
@@ -37,6 +38,7 @@ export async function startServer(projectRoot: string): Promise<void> {
   }
 
   // Initialize deps
+  const config = loadConfig(projectRoot);
   const embedder = await createEmbedder();
   const lance = await initVectorStore(lancePath);
   const db = initDatabase(dbPath);
@@ -45,11 +47,12 @@ export async function startServer(projectRoot: string): Promise<void> {
     embedder,
     lance,
     dbPath,
+    weights: config.curator.weights,
   };
 
   // Create MCP server
   const server = new Server(
-    { name: "ddmi", version: "0.1.0" },
+    { name: config.server.name, version: config.server.version },
     { capabilities: { tools: {} } },
   );
 

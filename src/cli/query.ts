@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import { createEmbedder } from "../core/embedder.js";
 import { createCurator } from "../core/curator.js";
+import { loadConfig } from "../core/config.js";
 import { initVectorStore } from "../storage/lance.js";
 import type { ContextRequest } from "../types.js";
 
@@ -33,10 +34,12 @@ export async function runQuery(
   const embedder = await createEmbedder();
   const lance = await initVectorStore(lancePath);
 
+  const config = loadConfig(projectRoot);
   const curator = await createCurator({
     embedder,
     lance,
     dbPath,
+    weights: config.curator.weights,
   });
 
   const req: ContextRequest = {
