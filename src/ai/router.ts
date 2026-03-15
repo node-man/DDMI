@@ -12,7 +12,7 @@ import type {
   DegradationLevel,
   DdmiConfig,
 } from "../types.js";
-import { createCLIProvider, detectCLITools, setRateLimiter } from "./providers/cli-subprocess.js";
+import { createCLIProvider, detectCLITools, setRateLimiter, cleanupProcesses } from "./providers/cli-subprocess.js";
 import { createOllamaProvider, setOllamaRateLimiter } from "./providers/ollama.js";
 import { createTransformersProvider } from "./providers/transformers.js";
 import { createRateLimiter } from "./rate-limiter.js";
@@ -22,6 +22,8 @@ export interface AIRouter {
   getEmbeddingProvider(): EmbeddingProvider;
   getAvailableProviders(): string[];
   getDegradationLevel(): DegradationLevel;
+  /** 종료 시 호출 — 남은 CLI 프로세스 정리 */
+  shutdown(): void;
 }
 
 export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
@@ -92,6 +94,10 @@ export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
 
     getDegradationLevel(): DegradationLevel {
       return level;
+    },
+
+    shutdown(): void {
+      cleanupProcesses();
     },
   };
 }

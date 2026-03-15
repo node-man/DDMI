@@ -102,6 +102,7 @@ export async function startServer(projectRoot: string): Promise<void> {
 
   // Server runs until process exits
   process.on("SIGINT", () => {
+    router.shutdown(); // CLI 서브프로세스 정리
     db.close();
     process.exit(0);
   });

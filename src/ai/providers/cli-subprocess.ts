@@ -179,6 +179,14 @@ export async function detectCLITools(): Promise<string[]> {
   return available;
 }
 
+/** 현재 실행 중인 CLI 프로세스 추적 */
+const activeProcesses = new Set<number>();
+
+/** 활성 프로세스 수 조회 */
+export function getActiveProcessCount(): number {
+  return activeProcesses.size;
+}
+
 function runCLI(
   config: CLIConfig,
   prompt: string,
@@ -190,7 +198,7 @@ function runCLI(
     // promptMode에 따라 args 구성
     const args = [...config.args];
     if (config.promptMode === "arg") {
-      args.push(prompt); // gemini -p "prompt"
+      args.push(prompt);
     }
 
     const child = execFile(
@@ -200,8 +208,12 @@ function runCLI(
         timeout,
         maxBuffer: 10 * 1024 * 1024,
         env: { ...process.env },
+        killSignal: "SIGKILL", // SIGTERM 대신 SIGKILL — 자식 프로세스까지 확실히 종료
       },
       (error, stdout, stderr) => {
+        // 프로세스 추적에서 제거
+        if (child.pid) activeProcesses.delete(child.pid);
+
         if (error) {
           reject(new Error(`${config.name} failed: ${error.message}\nstderr: ${stderr}`));
           return;
@@ -210,12 +222,27 @@ function runCLI(
       },
     );
 
+    // 프로세스 추적 등록
+    if (child.pid) activeProcesses.add(child.pid);
+
     // stdin 모드: 프롬프트를 stdin으로 전달
     if (config.promptMode === "stdin" && child.stdin) {
       child.stdin.write(prompt);
       child.stdin.end();
     }
   });
+}
+
+/** ddmi 종료 시 남은 프로세스 정리 */
+export function cleanupProcesses(): void {
+  for (const pid of activeProcesses) {
+    try {
+      process.kill(pid, "SIGKILL");
+    } catch {
+      // 이미 종료됨
+    }
+  }
+  activeProcesses.clear();
 }
 
 function which(command: string): Promise<string> {
