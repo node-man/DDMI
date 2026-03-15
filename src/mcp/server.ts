@@ -2,7 +2,7 @@
  * MCP Server — @modelcontextprotocol/sdk 기반
  *
  * stdio transport로 AI Agent와 통신.
- * 등록 도구: context_assemble, context_feedback
+ * 등록 도구: context_assemble, context_feedback, knowledge_query
  */
 
 import { join } from "node:path";
@@ -13,11 +13,12 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { createEmbedder } from "../core/embedder.js";
 import { loadConfig } from "../core/config.js";
 import { initVectorStore } from "../storage/lance.js";
 import { initDatabase } from "../storage/sqlite.js";
+import { createRouter } from "../ai/router.js";
 import type { CuratorDeps } from "../core/curator.js";
+import type { AIProvider } from "../types.js";
 import {
   TOOL_SCHEMA as ASSEMBLE_SCHEMA,
   handleContextAssemble,
@@ -26,6 +27,10 @@ import {
   TOOL_SCHEMA as FEEDBACK_SCHEMA,
   handleContextFeedback,
 } from "./tools/context-feedback.js";
+import {
+  TOOL_SCHEMA as KNOWLEDGE_SCHEMA,
+  handleKnowledgeQuery,
+} from "./tools/knowledge-query.js";
 
 export async function startServer(projectRoot: string): Promise<void> {
   const ddmiDir = join(projectRoot, ".ddmi");
@@ -39,16 +44,25 @@ export async function startServer(projectRoot: string): Promise<void> {
 
   // Initialize deps
   const config = loadConfig(projectRoot);
-  const embedder = await createEmbedder();
+  const router = await createRouter(config);
   const lance = await initVectorStore(lancePath);
   const db = initDatabase(dbPath);
 
   const curatorDeps: CuratorDeps = {
-    embedder,
+    embedder: router.getEmbeddingProvider(),
     lance,
     dbPath,
     weights: config.curator.weights,
   };
+
+  const aiProvider: AIProvider | null = router.getProvider();
+  const level = router.getDegradationLevel();
+
+  // Log provider status to stderr (not stdout — MCP uses stdout)
+  const providers = router.getAvailableProviders();
+  console.error(
+    `ddmi MCP server: Level ${level} | Providers: ${providers.length > 0 ? providers.join(", ") : "none"}`,
+  );
 
   // Create MCP server
   const server = new Server(
@@ -58,7 +72,7 @@ export async function startServer(projectRoot: string): Promise<void> {
 
   // List tools
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [ASSEMBLE_SCHEMA, FEEDBACK_SCHEMA],
+    tools: [ASSEMBLE_SCHEMA, FEEDBACK_SCHEMA, KNOWLEDGE_SCHEMA],
   }));
 
   // Handle tool calls
@@ -71,6 +85,9 @@ export async function startServer(projectRoot: string): Promise<void> {
 
       case "context_feedback":
         return handleContextFeedback(db, args ?? {});
+
+      case "knowledge_query":
+        return handleKnowledgeQuery(curatorDeps, aiProvider, args ?? {});
 
       default:
         throw new Error(`Unknown tool: ${name}`);
