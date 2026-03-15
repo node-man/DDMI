@@ -8,6 +8,7 @@
 import { Command } from "commander";
 import { runInit } from "./init.js";
 import { runIndex } from "./index-cmd.js";
+import { runQuery } from "./query.js";
 
 const program = new Command();
 
@@ -39,8 +40,8 @@ program
   .option("--task-type <type>", "Task type: implementation|review|research|planning", "research")
   .option("--max-tokens <n>", "Token budget", "8000")
   .option("--debug", "Show scoring details")
-  .action(async (_question, _options) => {
-    console.log("ddmi query — not yet implemented (Week 2)");
+  .action(async (question, options) => {
+    await runQuery(process.cwd(), question, options);
   });
 
 program
