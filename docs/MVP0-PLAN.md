@@ -229,11 +229,11 @@ getFeedbackStats(): FeedbackStats  // 통계 조회 (디버깅용)
 
 ### Day 10: Week 2 통합 테스트
 
-- [ ] `ddmi index` → `ddmi query "질문"` end-to-end
-- [ ] 스코어링 가중치 변경 → `ddmi eval` 재평가
-- [ ] coverage_score 검증
-- [ ] debug_scores 출력 검증
-- [ ] feedback 저장 확인
+- [x] `ddmi index` → `ddmi query "질문"` end-to-end (44ms 응답)
+- [ ] 스코어링 가중치 변경 → `ddmi eval` 재평가 (eval CLI는 Python으로 대체)
+- [x] coverage_score 검증 (0.84 확인)
+- [x] debug_scores 출력 검증 (--debug 플래그 동작 확인)
+- [x] feedback 저장 확인 (feedback.ts + SQLite 저장 구현 완료)
 
 ---
 
@@ -281,11 +281,12 @@ getFeedbackStats(): FeedbackStats  // 통계 조회 (디버깅용)
 
 ### Day 13-14: 통합 테스트 + 실사용
 
-- [ ] Claude Code에서 MCP 연동 → context_assemble 호출 → 컨텍스트 수신
-- [ ] 실제 프로젝트(이 프로젝트 자체)에서 end-to-end 테스트
-- [ ] context_feedback 호출 → feedback_log 저장 확인
+- [x] MCP 연동 → context_assemble 호출 → 컨텍스트 수신 (JSON-RPC + Claude Code 실제 연동 모두 성공)
+- [x] 실제 프로젝트(이 프로젝트 자체)에서 end-to-end 테스트 (69파일 인덱스 → 517 tokens 큐레이션, coverage 0.95)
+- [x] context_feedback 호출 → feedback_log 저장 확인 (FB-20260315-001)
 - [ ] serve --watch: 파일 변경 → 자동 리인덱싱 확인
-- [ ] 에러 핸들링: 인덱스 없이 serve 시 안내 메시지
+- [x] 에러 핸들링: 인덱스 없이 serve 시 안내 메시지
+- [ ] **이슈: eval/corpus가 인덱싱에 포함되어 실험 문서가 실제 문서보다 우선 반환됨 → ignore 패턴에 eval/ 추가 필요**
 
 ### Day 15: 마무리
 
