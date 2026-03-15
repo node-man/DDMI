@@ -15,6 +15,8 @@ import type {
   ScoringWeights,
   Relation,
   Conflict,
+  AuditEvent,
+  AuditFilter,
 } from "../types.js";
 
 // ─── Schema ──────────────────────────────────────────────
@@ -91,6 +93,23 @@ CREATE TABLE IF NOT EXISTS conflicts (
   detected_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_conflicts_status ON conflicts(status);
+
+CREATE TABLE IF NOT EXISTS audit_log (
+  id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  timestamp TEXT NOT NULL,
+  actor TEXT,
+  target_file TEXT,
+  target_chunk_id TEXT,
+  details JSON NOT NULL,
+  rationale TEXT,
+  based_on JSON,
+  previous_hash TEXT,
+  hash TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_audit_event_type ON audit_log(event_type);
+CREATE INDEX IF NOT EXISTS idx_audit_target_file ON audit_log(target_file);
+CREATE INDEX IF NOT EXISTS idx_audit_timestamp ON audit_log(timestamp);
 
 CREATE TABLE IF NOT EXISTS ai_task_queue (
   id TEXT PRIMARY KEY,
@@ -398,6 +417,67 @@ function rowToConflict(row: Record<string, unknown>): Conflict {
     resolvedAt: row.resolved_at as string | undefined,
     resolutionNote: row.resolution_note as string | undefined,
     detectedAt: row.detected_at as string,
+  };
+}
+
+// ─── Audit Log ──────────────────────────────────────────
+
+export function insertAuditEvent(db: Database.Database, e: AuditEvent): void {
+  db.prepare(
+    `INSERT INTO audit_log (id, event_type, timestamp, actor, target_file, target_chunk_id, details, rationale, based_on, previous_hash, hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    e.id, e.eventType, e.timestamp, e.actor,
+    e.targetFile ?? null, e.targetChunkId ?? null,
+    JSON.stringify(e.details), e.rationale ?? null,
+    e.basedOn ? JSON.stringify(e.basedOn) : null,
+    e.previousHash, e.hash,
+  );
+}
+
+export function getAuditEvents(db: Database.Database, filter?: AuditFilter): AuditEvent[] {
+  let sql = "SELECT * FROM audit_log WHERE 1=1";
+  const params: unknown[] = [];
+
+  if (filter?.eventType) { sql += " AND event_type = ?"; params.push(filter.eventType); }
+  if (filter?.targetFile) { sql += " AND target_file = ?"; params.push(filter.targetFile); }
+  if (filter?.after) { sql += " AND timestamp > ?"; params.push(filter.after); }
+  if (filter?.before) { sql += " AND timestamp < ?"; params.push(filter.before); }
+
+  sql += " ORDER BY timestamp DESC";
+  if (filter?.limit) { sql += " LIMIT ?"; params.push(filter.limit); }
+
+  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+  return rows.map(rowToAuditEvent);
+}
+
+export function getLatestAuditHash(db: Database.Database): string {
+  const row = db.prepare(
+    "SELECT hash FROM audit_log ORDER BY rowid DESC LIMIT 1",
+  ).get() as { hash: string } | undefined;
+  return row?.hash ?? "genesis";
+}
+
+export function getAllAuditEvents(db: Database.Database): AuditEvent[] {
+  const rows = db.prepare(
+    "SELECT * FROM audit_log ORDER BY rowid ASC",
+  ).all() as Array<Record<string, unknown>>;
+  return rows.map(rowToAuditEvent);
+}
+
+function rowToAuditEvent(row: Record<string, unknown>): AuditEvent {
+  return {
+    id: row.id as string,
+    eventType: row.event_type as AuditEvent["eventType"],
+    timestamp: row.timestamp as string,
+    actor: (row.actor as string) ?? "unknown",
+    targetFile: row.target_file as string | undefined,
+    targetChunkId: row.target_chunk_id as string | undefined,
+    details: parseJsonField(row.details),
+    rationale: row.rationale as string | undefined,
+    basedOn: row.based_on ? (JSON.parse(row.based_on as string) as string[]) : undefined,
+    previousHash: row.previous_hash as string,
+    hash: row.hash as string,
   };
 }
 
