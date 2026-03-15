@@ -70,12 +70,15 @@ export async function runWorker(
     }
   }, 30000);
 
-  process.on("SIGINT", () => {
+  const shutdown = () => {
     console.log(`\n[worker:${aiProvider.name}] shutting down...`);
     worker.stop();
     clearInterval(statusTimer);
     router.shutdown();
     db.close();
     process.exit(0);
-  });
+  };
+
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }

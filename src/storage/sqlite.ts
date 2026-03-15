@@ -469,8 +469,8 @@ export function getPendingTaskCount(db: Database.Database): number {
   return row.count;
 }
 
-/** 5분 이상 running 상태인 태스크를 pending으로 되돌림 (worker 크래시 복구) */
-export function reclaimStaleTasks(db: Database.Database, staleMinutes: number = 5): number {
+/** 2분 이상 running 상태인 태스크를 pending으로 되돌림 (worker 크래시/재시작 복구) */
+export function reclaimStaleTasks(db: Database.Database, staleMinutes: number = 2): number {
   const cutoff = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
   const result = db.prepare(
     `UPDATE ai_task_queue SET status = 'pending', worker_id = NULL, started_at = NULL

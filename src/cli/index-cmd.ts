@@ -237,9 +237,20 @@ export async function runIndex(
       });
 
       if (aiProvider) {
-        // --provider 지정됨: 즉시 LLM으로 분석 (Level 2)
-        const conflicts = await relationEngine.detectConflictsAI(pairsWithContent);
-        conflictCount = conflicts.length;
+        // --provider 지정됨: 1쌍씩 즉시 LLM 분석 (Level 2)
+        let aiErrors = 0;
+        for (const pair of pairsWithContent) {
+          try {
+            const conflicts = await relationEngine.detectConflictsAI([pair]);
+            conflictCount += conflicts.length;
+          } catch (err) {
+            aiErrors++;
+            console.log(`  AI error (${pair.aId} vs ${pair.bId}): ${(err as Error).message.slice(0, 60)}`);
+          }
+        }
+        if (aiErrors > 0) {
+          console.log(`  ${aiErrors}/${pairsWithContent.length} pairs failed AI analysis`);
+        }
       } else {
         // provider 없음: 쌍 1개 = 태스크 1개 (serve의 worker가 순차 처리)
         for (const pair of pairsWithContent) {

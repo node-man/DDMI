@@ -109,10 +109,12 @@ export async function startServer(projectRoot: string): Promise<void> {
   await server.connect(transport);
 
   // Server runs until process exits
-  process.on("SIGINT", () => {
+  const shutdown = () => {
     worker.stop();
     router.shutdown();
     db.close();
     process.exit(0);
-  });
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }

@@ -198,9 +198,9 @@ export function createRelationEngine(deps: RelationEngineDeps): RelationEngine {
         }
 
         return conflicts;
-      } catch {
-        // LLM 실패 시 빈 결과 (graceful degradation)
-        return [];
+      } catch (err) {
+        // LLM 실패를 상위로 전파 — 호출자가 에러를 보고해야 함
+        throw err;
       }
     },
 
