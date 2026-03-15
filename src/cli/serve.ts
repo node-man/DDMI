@@ -10,7 +10,7 @@ import { runIndex } from "./index-cmd.js";
 
 export async function runServe(
   projectRoot: string,
-  options: { watch?: boolean } = {},
+  options: { watch?: boolean; dashboardOnly?: boolean; port?: number } = {},
 ): Promise<void> {
   if (options.watch) {
     await startWatcher(projectRoot);
@@ -20,10 +20,19 @@ export async function runServe(
   const ddmiDir = join(projectRoot, ".ddmi");
   const dbPath = join(ddmiDir, "index.db");
   const db = initDatabase(dbPath);
-  startDashboard(db, dbPath);
+  startDashboard(db, dbPath, options.port ?? 3000);
 
-  // MCP Server (stdio)
-  await startServer(projectRoot);
+  if (options.dashboardOnly) {
+    // Dashboard만 — MCP 없이 브라우저에서 확인 가능
+    console.log("ddmi dashboard running. Press Ctrl+C to stop.");
+    process.on("SIGINT", () => { db.close(); process.exit(0); });
+    process.on("SIGTERM", () => { db.close(); process.exit(0); });
+    // 프로세스 유지
+    await new Promise(() => {});
+  } else {
+    // MCP Server (stdio) + Dashboard
+    await startServer(projectRoot);
+  }
 }
 
 async function startWatcher(projectRoot: string): Promise<void> {
