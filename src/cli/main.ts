@@ -9,6 +9,7 @@ import { Command } from "commander";
 import { runInit } from "./init.js";
 import { runIndex } from "./index-cmd.js";
 import { runQuery } from "./query.js";
+import { runServe } from "./serve.js";
 
 const program = new Command();
 
@@ -48,8 +49,8 @@ program
   .command("serve")
   .description("Start MCP server")
   .option("--watch", "Watch for file changes and auto-reindex")
-  .action(async (_options) => {
-    console.log("ddmi serve — not yet implemented (Week 3)");
+  .action(async (options) => {
+    await runServe(process.cwd(), { watch: options.watch });
   });
 
 program.parse();
