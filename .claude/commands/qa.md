@@ -103,8 +103,7 @@ Agent와의 **유일한 인터페이스**. 여기가 깨지면 모든 게 무의
 |------|------|-----------|
 | 인덱싱 50파일 | < 30초 | `time ddmi index` |
 | 쿼리 응답 | < 2초 | `ddmi query --debug` 출력의 시간 |
-| 메모리 (인덱싱) | < 500MB RSS | `node --max-old-space-size=512` |
-| 메모리 (쿼리) | < 200MB RSS | `node --max-old-space-size=256` |
+| 메모리 (인덱싱/쿼리) | < 1GB RSS | `process.memoryUsage().rss` (ONNX ~740MB baseline) |
 | eval composite | > 0.20 (현재), 목표 > 0.50 | `ddmi eval` |
 | 테스트 통과율 | 100% | `npx vitest run` |
 | TypeScript | 0 errors | `npx tsc` |
