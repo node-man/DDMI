@@ -489,13 +489,13 @@ ddmi audit --verify               # 해시 체인 무결성 검증
 
 ### Week 6 검증
 
-- [ ] mutate_audited → 파일 생성/수정 → audit_log 자동 기록
-- [ ] rationale/basedOn 누락 시 에러 반환
-- [ ] replace_section → 원본 포맷 보존 확인 (빈 줄, 들여쓰기)
-- [ ] 변경 후 자동 충돌 재검사 동작 (변경된 청크만)
-- [ ] 해시 체인 무결성 검증 통과
-- [ ] `ddmi audit --verify` → "Chain valid" 출력
-- [ ] `ddmi audit --file` → 특정 파일 변경 이력 조회
+- [x] mutate_audited → create/patch/replace_section 모두 audit_log 자동 기록
+- [x] rationale/basedOn 누락 시 에러 반환
+- [x] replace_section → 원본 포맷 보존 (헤딩 유지, 빈 줄 보존)
+- [ ] 변경 후 자동 충돌 재검사 동작 (후순위 — serve worker가 처리)
+- [x] 해시 체인 무결성 검증 통과 + 탬퍼 감지 (9 tests)
+- [x] `ddmi audit --verify` → "Chain valid (3 events verified)"
+- [x] `ddmi audit --file` → 특정 파일 이력 조회 (테스트 통과)
 
 ---
 
