@@ -32,6 +32,10 @@ import {
   TOOL_SCHEMA as KNOWLEDGE_SCHEMA,
   handleKnowledgeQuery,
 } from "./tools/knowledge-query.js";
+import {
+  TOOL_SCHEMA as MUTATE_SCHEMA,
+  handleMutateAudited,
+} from "./tools/mutate-audited.js";
 
 export async function startServer(projectRoot: string): Promise<void> {
   const ddmiDir = join(projectRoot, ".ddmi");
@@ -82,7 +86,7 @@ export async function startServer(projectRoot: string): Promise<void> {
 
   // List tools
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: [ASSEMBLE_SCHEMA, FEEDBACK_SCHEMA, KNOWLEDGE_SCHEMA],
+    tools: [ASSEMBLE_SCHEMA, FEEDBACK_SCHEMA, KNOWLEDGE_SCHEMA, MUTATE_SCHEMA],
   }));
 
   // Handle tool calls
@@ -98,6 +102,9 @@ export async function startServer(projectRoot: string): Promise<void> {
 
       case "knowledge_query":
         return handleKnowledgeQuery(curatorDeps, aiProvider, args ?? {});
+
+      case "mutate_audited":
+        return handleMutateAudited(projectRoot, dbPath, args ?? {});
 
       default:
         throw new Error(`Unknown tool: ${name}`);
