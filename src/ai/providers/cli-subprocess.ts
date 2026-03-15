@@ -21,6 +21,11 @@ interface CLIConfig {
   args: string[];
   name: string;
   timeoutMs?: number;
+  /** 프롬프트 전달 방식:
+   * "stdin" — stdin으로 전달 (claude, codex, llm)
+   * "arg"   — args 마지막에 프롬프트 추가 (gemini -p "prompt")
+   */
+  promptMode: "stdin" | "arg";
 }
 
 const CLI_TOOLS: Record<string, CLIConfig> = {
@@ -29,24 +34,28 @@ const CLI_TOOLS: Record<string, CLIConfig> = {
     args: ["-p", "--output-format", "text"],
     name: "Claude CLI",
     timeoutMs: 60000,
+    promptMode: "stdin",
   },
   codex: {
     command: "codex",
     args: ["exec", "-"],
     name: "Codex CLI",
     timeoutMs: 60000,
+    promptMode: "stdin",
   },
   gemini: {
     command: "gemini",
-    args: ["-p"],
+    args: ["-p", ""],   // -p ""로 headless 모드 진입, 프롬프트는 stdin
     name: "Gemini CLI",
     timeoutMs: 60000,
+    promptMode: "stdin",
   },
   llm: {
     command: "llm",
     args: [],
     name: "llm CLI",
     timeoutMs: 60000,
+    promptMode: "stdin",
   },
 };
 
@@ -178,9 +187,15 @@ function runCLI(
   return new Promise((resolve, reject) => {
     const timeout = timeoutMs ?? config.timeoutMs ?? 60000;
 
+    // promptMode에 따라 args 구성
+    const args = [...config.args];
+    if (config.promptMode === "arg") {
+      args.push(prompt); // gemini -p "prompt"
+    }
+
     const child = execFile(
       config.command,
-      [...config.args],
+      args,
       {
         timeout,
         maxBuffer: 10 * 1024 * 1024,
@@ -195,8 +210,8 @@ function runCLI(
       },
     );
 
-    // stdin-only: 프롬프트를 stdin으로만 전달
-    if (child.stdin) {
+    // stdin 모드: 프롬프트를 stdin으로 전달
+    if (config.promptMode === "stdin" && child.stdin) {
       child.stdin.write(prompt);
       child.stdin.end();
     }
