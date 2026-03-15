@@ -13,6 +13,8 @@ import type {
   FeedbackRecord,
   FeedbackInput,
   ScoringWeights,
+  Relation,
+  Conflict,
 } from "../types.js";
 
 // ─── Schema ──────────────────────────────────────────────
@@ -62,6 +64,33 @@ CREATE TABLE IF NOT EXISTS feedback_log (
 );
 CREATE INDEX IF NOT EXISTS idx_feedback_token ON feedback_log(feedback_token);
 CREATE INDEX IF NOT EXISTS idx_feedback_outcome ON feedback_log(outcome);
+
+CREATE TABLE IF NOT EXISTS relations (
+  id TEXT PRIMARY KEY,
+  source_chunk_id TEXT NOT NULL,
+  target_chunk_id TEXT NOT NULL,
+  relation_type TEXT NOT NULL,
+  confidence REAL DEFAULT 1.0,
+  extraction_method TEXT,
+  metadata JSON,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_relations_source ON relations(source_chunk_id);
+CREATE INDEX IF NOT EXISTS idx_relations_target ON relations(target_chunk_id);
+
+CREATE TABLE IF NOT EXISTS conflicts (
+  id TEXT PRIMARY KEY,
+  chunk_a_id TEXT NOT NULL,
+  chunk_b_id TEXT NOT NULL,
+  severity TEXT NOT NULL,
+  description TEXT,
+  status TEXT DEFAULT 'open',
+  resolved_by TEXT,
+  resolved_at TEXT,
+  resolution_note TEXT,
+  detected_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_conflicts_status ON conflicts(status);
 
 CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
   chunk_id UNINDEXED,
@@ -258,6 +287,103 @@ export function saveFeedback(
   );
 
   return record;
+}
+
+// ─── Relations ──────────────────────────────────────────
+
+export function insertRelation(db: Database.Database, r: Relation): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO relations (id, source_chunk_id, target_chunk_id, relation_type, confidence, extraction_method, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(r.id, r.sourceChunkId, r.targetChunkId, r.relationType, r.confidence, r.extractionMethod, JSON.stringify(r.metadata), r.createdAt);
+}
+
+export function insertRelations(db: Database.Database, relations: Relation[]): void {
+  const stmt = db.prepare(
+    `INSERT OR REPLACE INTO relations (id, source_chunk_id, target_chunk_id, relation_type, confidence, extraction_method, metadata, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+  );
+  for (const r of relations) {
+    stmt.run(r.id, r.sourceChunkId, r.targetChunkId, r.relationType, r.confidence, r.extractionMethod, JSON.stringify(r.metadata), r.createdAt);
+  }
+}
+
+export function getRelationsForChunk(db: Database.Database, chunkId: string): Relation[] {
+  const rows = db.prepare(
+    `SELECT * FROM relations WHERE source_chunk_id = ? OR target_chunk_id = ?`,
+  ).all(chunkId, chunkId) as Array<Record<string, unknown>>;
+  return rows.map(rowToRelation);
+}
+
+export function deleteRelationsByFileChunks(db: Database.Database, chunkIds: string[]): void {
+  if (chunkIds.length === 0) return;
+  const placeholders = chunkIds.map(() => "?").join(",");
+  db.prepare(`DELETE FROM relations WHERE source_chunk_id IN (${placeholders}) OR target_chunk_id IN (${placeholders})`).run(...chunkIds, ...chunkIds);
+}
+
+export function getRelationCount(db: Database.Database): number {
+  const row = db.prepare("SELECT COUNT(*) as count FROM relations").get() as { count: number };
+  return row.count;
+}
+
+// ─── Conflicts ──────────────────────────────────────────
+
+export function insertConflict(db: Database.Database, c: Conflict): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO conflicts (id, chunk_a_id, chunk_b_id, severity, description, status, detected_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  ).run(c.id, c.chunkAId, c.chunkBId, c.severity, c.description, c.status, c.detectedAt);
+}
+
+export function getOpenConflicts(db: Database.Database): Conflict[] {
+  const rows = db.prepare(
+    `SELECT * FROM conflicts WHERE status = 'open' ORDER BY detected_at DESC`,
+  ).all() as Array<Record<string, unknown>>;
+  return rows.map(rowToConflict);
+}
+
+export function resolveConflict(
+  db: Database.Database,
+  conflictId: string,
+  resolvedBy: string,
+  note: string,
+): void {
+  db.prepare(
+    `UPDATE conflicts SET status = 'resolved', resolved_by = ?, resolved_at = ?, resolution_note = ? WHERE id = ?`,
+  ).run(resolvedBy, new Date().toISOString(), note, conflictId);
+}
+
+export function getConflictCount(db: Database.Database): number {
+  const row = db.prepare("SELECT COUNT(*) as count FROM conflicts WHERE status = 'open'").get() as { count: number };
+  return row.count;
+}
+
+function rowToRelation(row: Record<string, unknown>): Relation {
+  return {
+    id: row.id as string,
+    sourceChunkId: row.source_chunk_id as string,
+    targetChunkId: row.target_chunk_id as string,
+    relationType: row.relation_type as Relation["relationType"],
+    confidence: row.confidence as number,
+    extractionMethod: row.extraction_method as Relation["extractionMethod"],
+    metadata: parseJsonField(row.metadata),
+    createdAt: row.created_at as string,
+  };
+}
+
+function rowToConflict(row: Record<string, unknown>): Conflict {
+  return {
+    id: row.id as string,
+    chunkAId: row.chunk_a_id as string,
+    chunkBId: row.chunk_b_id as string,
+    severity: row.severity as Conflict["severity"],
+    description: (row.description as string) ?? "",
+    status: row.status as Conflict["status"],
+    resolvedBy: row.resolved_by as string | undefined,
+    resolvedAt: row.resolved_at as string | undefined,
+    resolutionNote: row.resolution_note as string | undefined,
+    detectedAt: row.detected_at as string,
+  };
 }
 
 // ─── FTS5 (BM25 search for Level 0) ─────────────────────

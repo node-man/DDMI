@@ -166,6 +166,44 @@ export interface SearchResult extends VectorRecord {
   similarity: number; // 1 - distance (cosine)
 }
 
+// ─── Relations & Conflicts ──────────────────────────────
+
+export type RelationType =
+  | "depends_on"
+  | "derived_from"
+  | "contradicts"
+  | "supersedes"
+  | "references";
+
+export type ExtractionMethod = "explicit" | "embedding" | "ai";
+
+export interface Relation {
+  id: string;
+  sourceChunkId: string;
+  targetChunkId: string;
+  relationType: RelationType;
+  confidence: number;
+  extractionMethod: ExtractionMethod;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export type ConflictSeverity = "low" | "medium" | "high";
+export type ConflictStatus = "open" | "resolved" | "dismissed";
+
+export interface Conflict {
+  id: string;
+  chunkAId: string;
+  chunkBId: string;
+  severity: ConflictSeverity;
+  description: string;
+  status: ConflictStatus;
+  resolvedBy?: string;
+  resolvedAt?: string;
+  resolutionNote?: string;
+  detectedAt: string;
+}
+
 // ─── AI Provider ────────────────────────────────────────
 
 export interface AIProvider {
