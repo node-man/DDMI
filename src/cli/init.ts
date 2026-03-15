@@ -37,7 +37,7 @@ redundancy_penalty = 1.5
 [ai]
 default_provider = "auto"  # auto | claude | ollama | codex | gemini | llm
 ollama_url = "http://localhost:11434"
-ollama_model = "llama3.2"
+ollama_model = "qwen3.5:9b"
 
 [watcher]
 enabled = true

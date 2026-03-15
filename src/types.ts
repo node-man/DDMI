@@ -252,7 +252,7 @@ export const DEFAULT_CONFIG: DdmiConfig = {
   ai: {
     defaultProvider: "auto",
     ollamaUrl: "http://localhost:11434",
-    ollamaModel: "llama3.2",
+    ollamaModel: "qwen3.5:9b",
   },
   watcher: {
     enabled: true,

@@ -32,7 +32,7 @@ const CLI_TOOLS: Record<string, CLIConfig> = {
   },
   codex: {
     command: "codex",
-    args: ["-q"],
+    args: ["exec", "-"],
     name: "Codex CLI",
     timeoutMs: 60000,
   },
