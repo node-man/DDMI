@@ -10,6 +10,7 @@ import { join } from "node:path";
 import { initDatabase } from "../storage/sqlite.js";
 import { DEFAULT_CONFIG } from "../types.js";
 import { detectCLITools } from "../ai/providers/cli-subprocess.js";
+import { createOllamaProvider } from "../ai/providers/ollama.js";
 
 const CONFIG_TOML = `# ddmi — Document-Driven Memory Infrastructure
 # Configuration file. See docs/DDMI.md for full reference.
@@ -98,9 +99,22 @@ export async function runInit(projectRoot: string): Promise<void> {
   }
 
   // Detect AI providers
+  const providers: string[] = [];
+
   const cliTools = await detectCLITools();
-  if (cliTools.length > 0) {
-    console.log(`  AI providers detected: ${cliTools.join(", ")} (Level 2)`);
+  providers.push(...cliTools);
+
+  // Ollama: HTTP healthCheck (/api/tags — LLM 호출 아님)
+  const ollama = createOllamaProvider(
+    DEFAULT_CONFIG.ai.ollamaUrl,
+    DEFAULT_CONFIG.ai.ollamaModel,
+  );
+  if (await ollama.healthCheck()) {
+    providers.push(`ollama:${DEFAULT_CONFIG.ai.ollamaModel}`);
+  }
+
+  if (providers.length > 0) {
+    console.log(`  AI providers detected: ${providers.join(", ")} (Level 2)`);
   } else {
     console.log("  AI providers: none detected (Level 1 — embedding only)");
   }
