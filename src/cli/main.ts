@@ -10,6 +10,7 @@ import { runInit } from "./init.js";
 import { runIndex } from "./index-cmd.js";
 import { runQuery } from "./query.js";
 import { runServe } from "./serve.js";
+import { runEval } from "./eval.js";
 
 const program = new Command();
 
@@ -51,6 +52,29 @@ program
   .option("--watch", "Watch for file changes and auto-reindex")
   .action(async (options) => {
     await runServe(process.cwd(), { watch: options.watch });
+  });
+
+program
+  .command("eval")
+  .description("Evaluate context quality with questions.json")
+  .option("--questions <path>", "Path to questions JSON file")
+  .option("--question <n>", "Run single question (0-indexed)")
+  .option("--sim <n>", "Override semantic_sim weight", parseFloat)
+  .option("--kw <n>", "Override keyword_boost weight", parseFloat)
+  .option("--taa <n>", "Override task_aware_authority weight", parseFloat)
+  .option("--rec <n>", "Override recency weight", parseFloat)
+  .action(async (options) => {
+    const weightsOverride: Record<string, number> = {};
+    if (options.sim !== undefined) weightsOverride.semanticSim = options.sim;
+    if (options.kw !== undefined) weightsOverride.keywordBoost = options.kw;
+    if (options.rec !== undefined) weightsOverride.recency = options.rec;
+    if (options.taa !== undefined) weightsOverride.taskAwareAuthority = options.taa;
+
+    await runEval(process.cwd(), {
+      questionsPath: options.questions,
+      question: options.question !== undefined ? parseInt(options.question, 10) : undefined,
+      weightsOverride: Object.keys(weightsOverride).length > 0 ? weightsOverride : undefined,
+    });
   });
 
 program.parse();

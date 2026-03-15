@@ -230,7 +230,7 @@ getFeedbackStats(): FeedbackStats  // 통계 조회 (디버깅용)
 ### Day 10: Week 2 통합 테스트
 
 - [x] `ddmi index` → `ddmi query "질문"` end-to-end (44ms 응답)
-- [ ] 스코어링 가중치 변경 → `ddmi eval` 재평가 (eval CLI는 Python으로 대체)
+- [x] 스코어링 가중치 변경 → `ddmi eval` 재평가 (TS 포팅 완료: `ddmi eval --sim 0.70 --kw 0.00` → composite -17% 확인)
 - [x] coverage_score 검증 (0.84 확인)
 - [x] debug_scores 출력 검증 (--debug 플래그 동작 확인)
 - [x] feedback 저장 확인 (feedback.ts + SQLite 저장 구현 완료)
