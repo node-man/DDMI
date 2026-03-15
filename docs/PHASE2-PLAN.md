@@ -270,41 +270,53 @@ src/client/
 
 ---
 
-## 3. 새 npm 의존성 목록
+## 3. 확정 기술 스택 + npm 의존성
+
+### 핵심 결정 (2026-03-16 확정)
+
+| 용도 | 선택 | 이유 |
+|------|------|------|
+| UI 프레임워크 | React 19 + Vite 8 | 컴포넌트 재사용, 생태계 |
+| 스타일링 | **Tailwind CSS 4** + **shadcn/ui** | 유틸리티 CSS + Radix 기반 접근성 컴포넌트 |
+| 그래프 | **React Flow (@xyflow/react 12)** | React 네이티브, 노드/엣지 인터랙션 내장 |
+| 차트 | **Apache ECharts 6** | 풍부한 차트 종류, 대규모 데이터 성능 |
+| MD 프리뷰 | react-markdown 10 | remark 생태계 재사용 |
+| Diff 뷰 | diff2html 3 | side-by-side 렌더링 |
+| 아이콘 | Lucide React | shadcn 기본 아이콘 셋 |
+| UI 레퍼런스 | Vercel/Linear 스타일 | 다크 테마, 미니멀, 타이포그래피 중심 |
 
 ### dependencies (프로덕션)
 
 | 패키지 | 버전 | 용도 |
 |--------|------|------|
-| `react` | ^19.0.0 | UI 프레임워크 |
-| `react-dom` | ^19.0.0 | React DOM 렌더링 |
+| `react` | 19.2.4 | UI |
+| `react-dom` | 19.2.4 | DOM |
 | `react-router-dom` | ^7.0.0 | SPA 라우팅 |
-| `d3` | ^7.0.0 | Knowledge Graph force simulation |
-| `d3-force` | ^3.0.0 | Force-directed 레이아웃 (D3 서브패키지) |
-| `recharts` | ^2.15.0 | Health Dashboard 차트 (line, area, gauge) |
-| `react-markdown` | ^9.0.0 | Document Viewer MD 렌더링 |
-| `remark-gfm` | ^4.0.0 | GFM 지원 (이미 설치됨, 프론트엔드에서 재사용) |
-| `diff2html` | ^3.4.0 | Conflict Studio diff 뷰 렌더링 |
+| `@xyflow/react` | 12.10.1 | Knowledge Graph |
+| `echarts` | 6.0.0 | Health 차트, 트렌드 |
+| `echarts-for-react` | 3.0.6 | React 래퍼 |
+| `react-markdown` | 10.1.0 | MD 프리뷰 |
+| `remark-gfm` | 4.0.1 | GFM 지원 |
+| `diff2html` | 3.4.56 | 충돌 diff 뷰 |
+| `lucide-react` | 0.577.0 | 아이콘 |
+| `class-variance-authority` | 0.7.1 | shadcn 변형 관리 |
+| `clsx` | 2.1.1 | 조건부 클래스 |
+| `tailwind-merge` | 3.5.0 | Tailwind 클래스 충돌 해결 |
 
 ### devDependencies (개발)
 
 | 패키지 | 버전 | 용도 |
 |--------|------|------|
-| `vite` | ^6.0.0 | 프론트엔드 빌드 + dev server |
-| `@vitejs/plugin-react` | ^4.0.0 | Vite React 플러그인 (JSX transform) |
-| `@types/react` | ^19.0.0 | React 타입 |
-| `@types/react-dom` | ^19.0.0 | React DOM 타입 |
-| `@types/d3` | ^7.0.0 | D3 타입 |
-| `@playwright/test` | ^1.50.0 | E2E 테스트 (Week 7) |
+| `vite` | 8.0.0 | 빌드 + dev server |
+| `@vitejs/plugin-react` | 6.0.1 | Vite React 플러그인 |
+| `tailwindcss` | 4.2.1 | 유틸리티 CSS |
+| `@tailwindcss/vite` | 4.2.1 | Vite 통합 |
+| `@types/react` | 19.2.14 | 타입 |
+| `@types/react-dom` | 19.2.3 | 타입 |
 
-### 설치하지 않는 것
+### shadcn/ui 컴포넌트 (copy-paste, npm 설치 아님)
 
-| 패키지 | 이유 |
-|--------|------|
-| `tailwindcss` | CSS Modules로 충분. 외부 의존성 최소화 원칙. 필요 시 Week 1에 결정 |
-| `@visx/*` | Recharts로 충분. D3.js 직접 사용으로 커스터마이징 |
-| `zustand/redux` | React Context + useReducer로 충분. 상태 복잡도가 낮음 |
-| `swr/react-query` | 커스텀 `useApi` 훅으로 충분. 의존성 최소화 |
+Button, Badge, Card, Dialog, Tabs, Table, Input, Select, Sidebar, Tooltip
 
 ---
 
