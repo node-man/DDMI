@@ -58,6 +58,17 @@ function mergeConfig(
     }
   }
 
+  // [ai]
+  const ai = parsed.ai as Record<string, unknown> | undefined;
+  if (ai) {
+    if (typeof ai.default_provider === "string")
+      config.ai.defaultProvider = ai.default_provider;
+    if (typeof ai.ollama_url === "string")
+      config.ai.ollamaUrl = ai.ollama_url;
+    if (typeof ai.ollama_model === "string")
+      config.ai.ollamaModel = ai.ollama_model;
+  }
+
   // [watcher]
   const watcher = parsed.watcher as Record<string, unknown> | undefined;
   if (watcher) {

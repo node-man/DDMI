@@ -24,8 +24,8 @@ program
 program
   .command("init")
   .description("Initialize ddmi in the current project")
-  .action(() => {
-    runInit(process.cwd());
+  .action(async () => {
+    await runInit(process.cwd());
   });
 
 program

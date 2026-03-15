@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, writeFileSync, readFileSync, appendFileSync } fr
 import { join } from "node:path";
 import { initDatabase } from "../storage/sqlite.js";
 import { DEFAULT_CONFIG } from "../types.js";
+import { detectCLITools } from "../ai/providers/cli-subprocess.js";
 
 const CONFIG_TOML = `# ddmi — Document-Driven Memory Infrastructure
 # Configuration file. See docs/DDMI.md for full reference.
@@ -33,6 +34,11 @@ task_aware_authority = 0.15
 recency = 0.15
 redundancy_penalty = 1.5
 
+[ai]
+default_provider = "auto"  # auto | claude | ollama | codex | gemini | llm
+ollama_url = "http://localhost:11434"
+ollama_model = "llama3.2"
+
 [watcher]
 enabled = true
 debounce_ms = 2000
@@ -49,7 +55,7 @@ const MCP_JSON = `{
 }
 `;
 
-export function runInit(projectRoot: string): void {
+export async function runInit(projectRoot: string): Promise<void> {
   const ddmiDir = join(projectRoot, ".ddmi");
   const configPath = join(ddmiDir, "config.toml");
   const dbPath = join(ddmiDir, "index.db");
@@ -89,6 +95,14 @@ export function runInit(projectRoot: string): void {
       appendFileSync(gitignorePath, "\n# ddmi index\n.ddmi/\n");
       console.log("  Added .ddmi/ to .gitignore");
     }
+  }
+
+  // Detect AI providers
+  const cliTools = await detectCLITools();
+  if (cliTools.length > 0) {
+    console.log(`  AI providers detected: ${cliTools.join(", ")} (Level 2)`);
+  } else {
+    console.log("  AI providers: none detected (Level 1 — embedding only)");
   }
 
   console.log("\nddmi initialized successfully!");

@@ -166,6 +166,47 @@ export interface SearchResult extends VectorRecord {
   similarity: number; // 1 - distance (cosine)
 }
 
+// ─── AI Provider ────────────────────────────────────────
+
+export interface AIProvider {
+  name: string;
+  chat(prompt: string): Promise<string>;
+  chatJSON<T>(prompt: string): Promise<T>;
+  healthCheck(): Promise<boolean>;
+}
+
+export interface EmbeddingProvider {
+  name: string;
+  embed(texts: string[]): Promise<number[][]>;
+  embedOne(text: string): Promise<number[]>;
+  dimensions(): number;
+  healthCheck(): Promise<boolean>;
+}
+
+export type AITaskType =
+  | "relation_extraction"
+  | "conflict_detection"
+  | "entity_extraction"
+  | "doc_classification"
+  | "conflict_analysis"
+  | "impact_analysis"
+  | "knowledge_query";
+
+export interface AITask {
+  id: string;
+  type: AITaskType;
+  priority: "immediate" | "batch";
+  prompt: string;
+  context?: Record<string, unknown>;
+}
+
+export type DegradationLevel = 0 | 1 | 2;
+
+export interface AIRouterConfig {
+  defaultProvider: string; // "auto" | "claude" | "ollama" | "api"
+  taskOverrides?: Partial<Record<AITaskType, string>>;
+}
+
 // ─── Config ──────────────────────────────────────────────
 
 export interface DdmiConfig {
@@ -181,6 +222,11 @@ export interface DdmiConfig {
   curator: {
     defaultMaxTokens: number;
     weights: ScoringWeights;
+  };
+  ai: {
+    defaultProvider: string;
+    ollamaUrl: string;
+    ollamaModel: string;
   };
   watcher: {
     enabled: boolean;
@@ -202,6 +248,11 @@ export const DEFAULT_CONFIG: DdmiConfig = {
   curator: {
     defaultMaxTokens: 8000,
     weights: DEFAULT_SCORING_WEIGHTS,
+  },
+  ai: {
+    defaultProvider: "auto",
+    ollamaUrl: "http://localhost:11434",
+    ollamaModel: "llama3.2",
   },
   watcher: {
     enabled: true,
