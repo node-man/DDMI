@@ -4,16 +4,7 @@ import { HealthDashboard } from "./components/health/HealthDashboard";
 import { ExplorerPage } from "./components/explorer/ExplorerPage";
 import { GraphPage } from "./components/graph/GraphPage";
 import { ConflictsPage } from "./components/conflicts/ConflictsPage";
-
-// Phase 2 Week 6에서 구현 예정
-function PlaceholderPage({ name }: { name: string }) {
-  return (
-    <div className="p-6">
-      <h2 className="text-lg font-semibold">{name}</h2>
-      <p className="text-sm text-zinc-500 mt-2">Coming in Phase 2</p>
-    </div>
-  );
-}
+import { AuditPage } from "./components/audit/AuditPage";
 
 function AppLayout() {
   const { pathname } = useLocation();
@@ -26,7 +17,7 @@ function AppLayout() {
           <Route path="/explorer" element={<ExplorerPage />} />
           <Route path="/graph" element={<GraphPage />} />
           <Route path="/conflicts" element={<ConflictsPage />} />
-          <Route path="/audit" element={<PlaceholderPage name="Audit Timeline" />} />
+          <Route path="/audit" element={<AuditPage />} />
         </Routes>
       </main>
     </div>

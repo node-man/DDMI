@@ -107,7 +107,12 @@ export const api = {
   conflicts: () => get<Conflict[]>("/conflicts"),
   resolveConflict: (id: string, resolvedBy: string, note: string) =>
     post<{ success: boolean }>(`/conflicts/${id}/resolve`, { resolvedBy, note }),
-  audit: (limit = 50) => get<AuditEvent[]>(`/audit?limit=${limit}`),
+  audit: (limit = 50, type?: string, file?: string) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (type) params.set("type", type);
+    if (file) params.set("file", file);
+    return get<AuditEvent[]>(`/audit?${params}`);
+  },
   files: () => get<FileItem[]>("/files"),
   fileChunks: (fileId: string) => get<ChunkItem[]>(`/files/${fileId}/chunks`),
   search: (query: string) => get<SearchResult[]>(`/search?q=${encodeURIComponent(query)}`),
