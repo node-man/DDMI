@@ -38,7 +38,7 @@ export interface RelationEngineDeps {
   embedder: Embedder | null;
   lance: LanceConnection | null;
   aiProvider: AIProvider | null;
-  similarityThreshold?: number; // default 0.85
+  similarityThreshold?: number; // default 0.85 (Level 1 후보 필터용)
 }
 
 export interface RelationEngine {
@@ -169,12 +169,25 @@ export function createRelationEngine(deps: RelationEngineDeps): RelationEngine {
       const now = new Date().toISOString();
 
       try {
-        const results = await deps.aiProvider.chatJSON<Array<{
+        let raw: unknown;
+        try {
+          raw = await deps.aiProvider.chatJSON<unknown>(prompt);
+        } catch (chatErr) {
+          // JSON 파싱 실패 (빈 응답 등) → no conflict로 간주
+          // provider 자체 에러 (네트워크, timeout 등) → 상위로 전파
+          if ((chatErr as Error).message?.includes("No valid JSON")) {
+            return [];
+          }
+          throw chatErr;
+        }
+
+        // LLM이 배열 대신 단일 객체를 반환할 수 있음
+        const results: Array<{
           pair_index: number;
           is_conflict: boolean;
           severity: string;
           description: string;
-        }>>(prompt);
+        }> = Array.isArray(raw) ? raw : [raw as any];
 
         const conflicts: Conflict[] = [];
 

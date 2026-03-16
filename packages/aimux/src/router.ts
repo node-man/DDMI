@@ -25,7 +25,10 @@ export interface AIRouter {
   shutdown(): void;
 }
 
-export async function createRouter(config: RouterConfig): Promise<AIRouter> {
+export async function createRouter(
+  config: RouterConfig,
+  options?: { existingEmbedder?: EmbeddingProvider },
+): Promise<AIRouter> {
   // 0. Rate limiter — 모든 provider가 공유
   const rateLimiter = createRateLimiter({
     maxPerMinute: 10,
@@ -34,10 +37,9 @@ export async function createRouter(config: RouterConfig): Promise<AIRouter> {
   setRateLimiter(rateLimiter);
   setOllamaRateLimiter(rateLimiter);
 
-  // 1. Initialize embedding provider (always available)
-  const embeddingProvider = await createTransformersProvider(
-    config.embeddingModel,
-  );
+  // 1. Initialize embedding provider (reuse if provided)
+  const embeddingProvider = options?.existingEmbedder
+    ?? await createTransformersProvider(config.embeddingModel);
 
   // 2. Detect AI providers
   const aiProviders: AIProvider[] = [];

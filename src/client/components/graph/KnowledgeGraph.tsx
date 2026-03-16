@@ -12,10 +12,14 @@ import {
   type ColorMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
+import Dagre from "@dagrejs/dagre";
 import { FileNode, type FileNodeData } from "./FileNode";
 import type { GraphData } from "../../lib/client";
 
 const nodeTypes = { file: FileNode };
+
+const NODE_WIDTH = 200;
+const NODE_HEIGHT = 60;
 
 const EDGE_COLORS: Record<string, string> = {
   references: "#3b82f6",       // blue-500
@@ -25,31 +29,48 @@ const EDGE_COLORS: Record<string, string> = {
   supersedes: "#f59e0b",       // yellow-500
 };
 
-// 원형 레이아웃 계산
-function layoutNodes(data: GraphData): Node<FileNodeData>[] {
-  const count = data.nodes.length;
-  if (count === 0) return [];
+// dagre 자동 레이아웃 — 위→아래 방향, 노드 간 간격 자동 계산
+function getLayoutedElements(
+  rawNodes: Node<FileNodeData>[],
+  rawEdges: Edge[],
+): { nodes: Node<FileNodeData>[]; edges: Edge[] } {
+  const g = new Dagre.graphlib.Graph().setDefaultEdgeLabel(() => ({}));
+  g.setGraph({ rankdir: "TB", nodesep: 80, ranksep: 100 });
 
-  const radius = Math.max(300, count * 40);
-  const cx = 0;
-  const cy = 0;
+  for (const node of rawNodes) {
+    g.setNode(node.id, { width: NODE_WIDTH, height: NODE_HEIGHT });
+  }
+  for (const edge of rawEdges) {
+    g.setEdge(edge.source, edge.target);
+  }
 
-  return data.nodes.map((n, i) => {
-    const angle = (2 * Math.PI * i) / count - Math.PI / 2;
+  Dagre.layout(g);
+
+  const nodes = rawNodes.map((node) => {
+    const pos = g.node(node.id);
     return {
-      id: n.id,
-      type: "file",
+      ...node,
       position: {
-        x: cx + radius * Math.cos(angle),
-        y: cy + radius * Math.sin(angle),
-      },
-      data: {
-        label: n.label,
-        docType: n.docType,
-        totalTokens: n.totalTokens,
+        x: pos.x - NODE_WIDTH / 2,
+        y: pos.y - NODE_HEIGHT / 2,
       },
     };
   });
+
+  return { nodes, edges: rawEdges };
+}
+
+function buildNodes(data: GraphData): Node<FileNodeData>[] {
+  return data.nodes.map((n) => ({
+    id: n.id,
+    type: "file" as const,
+    position: { x: 0, y: 0 }, // dagre가 덮어씀
+    data: {
+      label: n.label,
+      docType: n.docType,
+      totalTokens: n.totalTokens,
+    },
+  }));
 }
 
 function buildEdges(data: GraphData): Edge[] {
@@ -57,7 +78,7 @@ function buildEdges(data: GraphData): Edge[] {
     id: e.id,
     source: e.source,
     target: e.target,
-    type: "default",
+    type: "smoothstep",
     animated: e.type === "contradicts",
     style: {
       stroke: EDGE_COLORS[e.type] ?? "#71717a",
@@ -76,11 +97,14 @@ interface Props {
 }
 
 export function KnowledgeGraph({ data, onNodeClick }: Props) {
-  const initialNodes = useMemo(() => layoutNodes(data), [data]);
-  const initialEdges = useMemo(() => buildEdges(data), [data]);
+  const { nodes: layoutedNodes, edges: layoutedEdges } = useMemo(() => {
+    const rawNodes = buildNodes(data);
+    const rawEdges = buildEdges(data);
+    return getLayoutedElements(rawNodes, rawEdges);
+  }, [data]);
 
-  const [nodes, , onNodesChange] = useNodesState(initialNodes);
-  const [edges, , onEdgesChange] = useEdgesState(initialEdges);
+  const [nodes, , onNodesChange] = useNodesState(layoutedNodes);
+  const [edges, , onEdgesChange] = useEdgesState(layoutedEdges);
 
   const handleNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {
@@ -103,7 +127,7 @@ export function KnowledgeGraph({ data, onNodeClick }: Props) {
       fitView
       minZoom={0.1}
       maxZoom={2}
-      defaultEdgeOptions={{ type: "default" }}
+      defaultEdgeOptions={{ type: "smoothstep" }}
     >
       <Controls className="!bg-zinc-900 !border-zinc-700 !shadow-lg [&>button]:!bg-zinc-800 [&>button]:!border-zinc-700 [&>button]:!text-zinc-300 [&>button:hover]:!bg-zinc-700" />
       <MiniMap

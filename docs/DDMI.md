@@ -117,8 +117,8 @@ ddmi는 MD를 "관리"하는 게 아니라 "의미를 이해하고 Agent 협업�
 7. **Graceful Degradation (3단계)**: LLM provider가 없어도 ddmi는 작동한다. 기능이 점진적으로 켜지는 구조.
    - **Level 0** (임베딩 모델 다운로드 불가/오프라인): 명시적 링크 관계(`[[wikilink]]`, `[md link]`) + frontmatter 메타데이터 + BM25 키워드 검색으로 기본 컨텍스트 조립.
    - **Level 1** (transformers.js 임베딩만): + 벡터 유사도 검색. 대부분의 사용자가 여기서 시작. npm install만으로 도달.
-   - **Level 2** (+ Ollama 또는 CLI LLM): + 관계 추출, 충돌 감지, 엔티티 추출, 문서 유형 분류. 풀 기능.
-8. **배치 우선 AI 호출**: AI 태스크는 개별 실행하지 않고 작업큐에 모아서 배치 실행한다. CLI subprocess 오버헤드를 최소화하고 프롬프트를 병합하여 처리량을 극대화한다.
+   - **Level 2** (+ Ollama 또는 CLI LLM): + 통합 프롬프트 1회 호출로 문서 분류(doc_classification) + 관계 추출(relation extraction) + 충돌 감지(conflict detection)를 모두 처리. knowledge_query. 풀 기능.
+8. **통합 프롬프트 1회 호출**: 분류 + 관계 추출 + 충돌 감지는 별도 태스크가 아니라, 같은 파일 컨텍스트를 공유하는 하나의 분석이다. 통합 프롬프트로 1회 LLM 호출에 모든 결과를 JSON으로 반환받는다 (v1: 46호출 → v2: 3호출 → v3: 1호출로 진화).
 
 ---
 
@@ -362,14 +362,24 @@ ddmi의 심장. Agent가 작업 시작 시 호출하며, 최적의 컨텍스트�
 
 1. **명시적 (explicit)**: `[[wikilink]]`, `[markdown link](path)` 파싱
 2. **임베딩 기반 (embedding)**: 코사인 유사도 > 0.85인 청크 쌍 → 후보. 0.85는 초기 시작점이며, MVP-1 Week 5에서 실제 프로젝트의 유사도 분포를 시각화한 후 프로젝트별 최적값으로 조정한다. `config.toml`의 `[relations] similarity_threshold`로 노출.
-3. **LLM 기반 (ai)**: 후보 쌍을 경량 LLM에 넘겨 관계 유형 + 근거 추출
+3. **통합 프롬프트 (ai)**: ~~후보 쌍을 개별 LLM 호출로 분석~~ → **1회 호출로 분류 + 관계 + 충돌을 통합 분석**. 같은 파일 컨텍스트를 3번 읽힐 필요가 없다는 First Principles 분석에 따라, 단일 프롬프트로 JSON 응답:
+   ```json
+   {
+     "classifications": [{"path": "file.md", "docType": "spec"}],
+     "relations": [{"source": "a.md", "target": "b.md", "relationType": "depends_on"}],
+     "conflicts": [{"pairIndex": 0, "severity": "high", "description": "..."}]
+   }
+   ```
+   진화 경로: v1 (파일당 1호출 × 46 = timeout) → v2 (태스크당 1호출 × 3) → v3 (통합 1호출).
 
 #### 충돌 감지 전략
 
-LLM에 동일 주제의 청크 쌍을 제시하고, 모순 여부 + 심각도를 판단:
+> **현재 구현**: 충돌 감지는 통합 프롬프트의 일부로 실행된다. 분류 + 관계 추출과 함께 1회 LLM 호출에 포함되므로 별도 호출이 필요 없다. 아래는 통합 프롬프트 이전의 레거시 접근 방식 기록.
+
+~~LLM에 동일 주제의 청크 쌍을 제시하고, 모순 여부 + 심각도를 판단:~~
 
 ```
-Prompt template:
+(레거시) Prompt template — 현재는 통합 프롬프트에 포함:
 "다음 두 문서 섹션이 서로 모순되는 내용을 포함하는지 판단하세요.
 모순이 있다면 severity(low/medium/high)와 구체적 설명을 제공하세요.
 
@@ -856,16 +866,21 @@ class AITaskQueue {
 }
 ```
 
-**배치 프롬프트 병합 예시:**
+**통합 프롬프트 (Unified Prompt) — v3 아키텍처:**
+
+> **First Principles**: "분류, 관계, 충돌은 별도 태스크"는 거짓 전제. 같은 파일 컨텍스트를 3번 읽힐 이유가 없다. 1회 호출로 모든 분석을 수행한다.
 
 ```
-// 개별 호출 (50회): 쌍마다 1회 CLI 실행
-"다음 두 섹션의 관계를 분석하세요: ..."  × 50번
+// v1: 파일당 1호출 × 46 = timeout, rate limit
+// v2: 태스크당 1호출 × 3 = 나아졌지만 중복 컨텍스트
+// v3 (현재): 통합 프롬프트 1회 = 분류 + 관계 + 충돌을 한 번에
 
-// 배치 호출 (5회): 10쌍을 1회 CLI에 묶어서
-"다음 10개 섹션 쌍의 관계를 각각 분석하고, JSON 배열로 반환하세요.
-[{ "pair_id": 1, "section_a": "...", "section_b": "..." }, ...]
-→ 응답: [{ "pair_id": 1, "relation": "depends_on", "confidence": 0.9 }, ...]"
+응답 JSON 구조:
+{
+  "classifications": [{"path": "file.md", "docType": "spec"}],
+  "relations": [{"source": "a.md", "target": "b.md", "relationType": "depends_on"}],
+  "conflicts": [{"pairIndex": 0, "severity": "high", "description": "..."}]
+}
 ```
 
 **flush 조건 (어느 하나라도 만족 시 실행):**
@@ -873,20 +888,19 @@ class AITaskQueue {
 2. `flushInterval`(기본 3초) 동안 새 태스크 없음
 3. 호출자가 명시적으로 `queue.flush()` 호출 (인덱싱 완료 시)
 
-**Immediate vs Batch 라우팅:**
+**Immediate vs Unified 라우팅:**
 
 | 태스크 | 모드 | 이유 |
 |---|---|---|
-| relation_extraction | **Batch** | 인덱싱 시 수십~수백 쌍 발생, 지연 허용 |
-| conflict_detection | **Batch** | 동일, 인덱싱 시 대량 발생 |
+| classification + relation + conflict | **Unified (1회)** | 인덱싱 시 통합 프롬프트로 한 번에 처리 |
 | entity_extraction | **Batch** | 청크당 1회, 인덱싱 시 대량 발생 |
-| doc_classification | **Batch** | 파일당 1회, 드물지만 배치 가능 |
 | conflict_analysis | **Immediate** | Decision Gate에서 사람이 결과를 기다리는 중 |
 | impact_analysis | **Immediate** | Decision Gate에서 사람이 결과를 기다리는 중 |
 
-**성능 (100개 파일, 50개 관계 쌍 기준):**
-- 개별 호출: 50회 × ~2초 = ~100초
-- 배치 (10쌍/배치): 5회 × ~4초 = ~20초 (80% 절감)
+**성능 (100개 파일 기준):**
+- v1 (개별 호출): 46회 × ~2초 = ~92초 + timeout/rate limit 리스크
+- v2 (태스크별 배치): 3회 × ~4초 = ~12초 (87% 절감)
+- v3 (통합 프롬프트): 1회 × ~6초 = ~6초 (93% 절감, 중복 컨텍스트 제거)
 
 **JSON 파싱 견고성:**
 CLI 응답에서 JSON을 추출할 때, stdout에 경고/진행률/ANSI 코드가 섞일 수 있다.
@@ -1265,16 +1279,26 @@ ddmi의 존재 이유인 "큐레이션 > 전체 덤프" 가설을 **구현 전�
 - "결정문서 Y와 스펙 Z 사이에 새 충돌 감지 — 확인 필요"
 - "피드백 데이터가 100건 이상 → 가중치 자동 튜닝 실행 권장"
 
-#### 기술 선택
+#### 기술 선택 (확정)
 
 | 영역 | 도구 | 이유 |
 |------|------|------|
-| 프론트엔드 프레임워크 | React + Vite | 컴포넌트 재사용, 생태계 |
-| 그래프 시각화 | D3.js + @visx | 커스터마이징 자유도, force-directed |
-| Diff 뷰 | diff2html 또는 커스텀 | side-by-side 렌더링 |
-| 차트 | Recharts 또는 @visx | React 네이티브 통합 |
-| 실시간 | SSE (Server-Sent Events) | WebSocket보다 단순, 단방향 |
+| 프론트엔드 프레임워크 | React 19 + Vite 7 + Tailwind 4 | 컴포넌트 재사용, 생태계 |
+| 그래프 시각화 | React Flow (@xyflow/react 12) + dagre | 선언적 API, 자동 레이아웃 |
+| 차트 | ECharts 6 (echarts-for-react) | 풍부한 게이지/차트, 한국어 지원 |
+| 아이콘 | Lucide React | 경량, React 네이티브 |
+| ORM | Drizzle ORM 0.45 | 타입 안전 SQLite 접근 |
 | MD 렌더링 | react-markdown + remark | 기존 파서 생태계 재사용 |
+| Diff 뷰 | diff2html | side-by-side 렌더링 |
+
+> **구현 상태**: Phase 2 완료 (6개 페이지). Phase 2.5 진행 중 — Settings 페이지, 통합 AI 프롬프트 (1회 호출), dagre auto-layout.
+
+#### Phase 2.5: Dashboard AI Operations (진행 중)
+
+- **Settings 페이지**: AI provider 상태 표시, Index 제어 (reindex/incremental), Knowledge Query 패널
+- **통합 AI 프롬프트 (Unified Prompt)**: 1회 LLM 호출로 doc classification + relation extraction + conflict detection 통합 처리 (v1: 46호출 → v2: 3호출 → v3: 1호출)
+- **dagre auto-layout**: Knowledge Graph에 자동 레이아웃 적용 (force-directed 대체)
+- **aimux SDK 추출**: AI CLI multiplexer를 독립 패키지(`packages/aimux/`)로 분리
 
 ### Phase 3 (Month 5~6): Intelligence + Multi-agent
 

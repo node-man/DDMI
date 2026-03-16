@@ -2,10 +2,20 @@
  * Curator unit tests — 스코어링, 예산 패킹, redundancy, coverage 검증
  */
 
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { randomUUID } from "node:crypto";
+import { join } from "node:path";
+import { rmSync, mkdirSync } from "node:fs";
+import {
+  initDatabase,
+  upsertFile,
+  insertChunks,
+} from "../storage/sqlite.js";
+import type { FileRecord, ChunkRecord } from "../types.js";
 import {
   scoreCandidates,
   packBudget,
+  expandSiblings,
   computeKeywordBoost,
   computeCoverage,
 } from "./curator.js";
@@ -371,5 +381,142 @@ describe("custom weights", () => {
 
     // keyword가 매칭되므로, kw 가중치가 높으면 스코어가 다름
     expect(highKwScored[0].rawScore).not.toBe(defaultScored[0].rawScore);
+  });
+});
+
+// ─── expandSiblings ─────────────────────────────────────
+
+const SIBLING_TEST_DIR = join(import.meta.dirname, "../../.test-tmp/curator-sibling");
+
+function makeFileRecord(id: string, path: string): FileRecord {
+  return {
+    id, path, title: path, docType: "spec", frontmatter: {},
+    checksum: "abc", totalTokens: 300, completenessScore: 0,
+    createdAt: "2026-01-01", updatedAt: "2026-01-01", indexedAt: "2026-01-01",
+  };
+}
+
+function makeChunkRecord(id: string, fileId: string, section: string, content: string, tokens = 50): ChunkRecord {
+  return {
+    id, fileId, sectionPath: section, content,
+    tokenCount: tokens, headingLevel: 2, chunkType: "prose",
+    metadata: {}, createdAt: "2026-01-01",
+  };
+}
+
+describe("expandSiblings", () => {
+  beforeEach(() => mkdirSync(SIBLING_TEST_DIR, { recursive: true }));
+  afterEach(() => { try { rmSync(SIBLING_TEST_DIR, { recursive: true }); } catch {} });
+
+  function testDbPath(): string {
+    return join(SIBLING_TEST_DIR, `test-${randomUUID()}.db`);
+  }
+
+  function makeScoredCandidate(chunk: ChunkRecord, filePath: string, similarity = 0.85): ScoredCandidate {
+    return {
+      result: {
+        id: chunk.id,
+        vector: [],
+        fileId: chunk.fileId,
+        filePath,
+        sectionPath: chunk.sectionPath,
+        content: chunk.content,
+        docType: "spec",
+        date: "2026-01-01",
+        tokenCount: chunk.tokenCount,
+        distance: 0,
+        similarity,
+      },
+      semanticSim: similarity,
+      keywordBoost: 0,
+      taskAwareAuthority: 0.9,
+      recency: 0.5,
+      rawScore: similarity * 0.55 + 0.9 * 0.15 + 0.5 * 0.15,
+      redundancyPenalty: 0,
+      finalScore: similarity * 0.55 + 0.9 * 0.15 + 0.5 * 0.15,
+    };
+  }
+
+  it("같은 파일의 인접 섹션을 자동 포함한다", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+    upsertFile(db, makeFileRecord("f1", "docs/api.md"));
+    const chunks = [
+      makeChunkRecord("c1", "f1", "## Intro", "소개"),
+      makeChunkRecord("c2", "f1", "## Design", "설계"),
+      makeChunkRecord("c3", "f1", "## Implementation", "구현"),
+      makeChunkRecord("c4", "f1", "## Testing", "테스트"),
+    ];
+    insertChunks(db, chunks);
+    db.close();
+
+    // c2가 선택됨 → c1, c3이 sibling으로 확장되어야 함
+    const selected = [makeScoredCandidate(chunks[1], "docs/api.md")];
+    const allScored = chunks.map((c) => makeScoredCandidate(c, "docs/api.md", 0.85 - 0.01 * chunks.indexOf(c)));
+
+    const expanded = expandSiblings(selected, allScored, 8000, dbPath);
+
+    expect(expanded.length).toBeGreaterThan(1);
+    const expandedIds = expanded.map((e) => e.result.id);
+    expect(expandedIds).toContain("c2"); // 원래 선택
+    expect(expandedIds).toContain("c1"); // sibling (앞)
+    expect(expandedIds).toContain("c3"); // sibling (뒤)
+  });
+
+  it("예산 초과 시 sibling 확장을 멈춘다", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+    upsertFile(db, makeFileRecord("f1", "docs/big.md"));
+    const chunks = [
+      makeChunkRecord("c1", "f1", "## A", "A content", 100),
+      makeChunkRecord("c2", "f1", "## B", "B content", 100),
+      makeChunkRecord("c3", "f1", "## C", "C content", 100),
+    ];
+    insertChunks(db, chunks);
+    db.close();
+
+    // c2 선택 (100 tokens), budget 150 → sibling 1개만 가능 (30% of 150 = 45 → 0)
+    const selected = [makeScoredCandidate(chunks[1], "docs/big.md")];
+    const allScored = chunks.map((c) => makeScoredCandidate(c, "docs/big.md"));
+
+    const expanded = expandSiblings(selected, allScored, 150, dbPath);
+    // 150 - 100 = 50 remaining, sibling budget = min(50, 45) = 45 → no 100-token sibling fits
+    expect(expanded.length).toBe(1);
+  });
+
+  it("파일당 SIBLING_MAX(3) 제한을 준수한다", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+    upsertFile(db, makeFileRecord("f1", "docs/long.md"));
+    const chunks = Array.from({ length: 10 }, (_, i) =>
+      makeChunkRecord(`c${i}`, "f1", `## Section ${i}`, `Content ${i}`, 30),
+    );
+    insertChunks(db, chunks);
+    db.close();
+
+    // c5 선택 → siblings: c4, c6 (인접 2개만, 최대 3)
+    const selected = [makeScoredCandidate(chunks[5], "docs/long.md")];
+    const allScored = chunks.map((c) => makeScoredCandidate(c, "docs/long.md"));
+
+    const expanded = expandSiblings(selected, allScored, 8000, dbPath);
+    // 1 (original) + max 3 siblings = 4 or less
+    expect(expanded.length).toBeLessThanOrEqual(4);
+    expect(expanded.length).toBeGreaterThan(1);
+  });
+
+  it("단일 청크 파일은 확장하지 않는다", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+    upsertFile(db, makeFileRecord("f1", "docs/single.md"));
+    insertChunks(db, [makeChunkRecord("c1", "f1", "## Only", "Only section", 50)]);
+    db.close();
+
+    const selected = [makeScoredCandidate(
+      makeChunkRecord("c1", "f1", "## Only", "Only section", 50),
+      "docs/single.md",
+    )];
+
+    const expanded = expandSiblings(selected, selected, 8000, dbPath);
+    expect(expanded.length).toBe(1);
   });
 });

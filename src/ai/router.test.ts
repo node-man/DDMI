@@ -8,6 +8,7 @@
 import { describe, it, expect } from "vitest";
 import { createRouter, type AIRouter } from "./router.js";
 import { DEFAULT_CONFIG, type DdmiConfig } from "../types.js";
+import type { EmbeddingProvider } from "aimux";
 
 // embedder 로드 없이 router만 테스트하기 위한 config
 // transformers.js 모델 로드를 피하려면 router 내부의 embedding 초기화가 문제
@@ -39,5 +40,23 @@ describe("AIRouter", () => {
 
     config.ai.defaultProvider = "ollama";
     expect(config.ai.defaultProvider).toBe("ollama");
+  });
+
+  it("existingEmbedder를 전달하면 재사용한다 (TTL refresh 경로)", async () => {
+    const mockEmbedder: EmbeddingProvider = {
+      name: "mock-cached-embedder",
+      embed: async (texts: string[]) => texts.map(() => new Array(384).fill(0)),
+      embedOne: async () => new Array(384).fill(0),
+      dimensions: () => 384,
+      healthCheck: async () => true,
+    };
+
+    const config = structuredClone(DEFAULT_CONFIG);
+    const router = await createRouter(config, { existingEmbedder: mockEmbedder });
+
+    // 반환된 router의 embedder가 전달한 mock과 동일한 인스턴스여야 함
+    const embedder = router.getEmbeddingProvider();
+    expect(embedder.name).toBe("mock-cached-embedder");
+    expect(embedder).toBe(mockEmbedder);
   });
 });

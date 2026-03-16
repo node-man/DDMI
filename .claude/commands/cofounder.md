@@ -44,35 +44,47 @@ Day 1 실험에서 발견한 것:
 - 기술 스택 확정: TypeScript, SQLite, LanceDB, transformers.js, MCP SDK
 - 오픈소스(MIT) + 포맷 해자 전략 결정
 
-### Phase 3: Building (MVP-0 완료, MVP-1 진행 예정)
+### Phase 3: Building (MVP-0 완료 → MVP-1 완료 → Phase 2 완료 → Phase 2.5 진행 중)
 
-**MVP-0 완성물:**
+**MVP-0 완성물 (v0.1.0):**
 - `ddmi init → index → serve --watch` end-to-end 파이프라인
 - `context_assemble` + `context_feedback` MCP 도구 (Claude Code 연동 검증)
 - CLI: init, index, query (--debug), serve (--watch), eval (가중치 오버라이드)
 - 59 tests, 2,968 LOC, ddmi-0.1.0.tgz (152KB)
 
-**MVP-1 로드맵:**
-| 주차 | 핵심 | 차별화 기여도 |
-|------|------|-------------|
-| Week 4 | AI Provider 추상화 | 낮음 (인프라) |
-| Week 5 | Relation Engine + 충돌 감지 | **높음** (핵심 차별화) |
-| Week 6 | Audit Trail + mutate_audited | **높음** (핵심 차별화) |
-| Week 7 | Mission Control Dashboard | 중간 (사용성) |
-| Week 8 | 통합 테스트 | 낮음 (품질) |
+**MVP-1 완성물 (v0.2.0):**
+- AI Provider 추상화 (Claude, Codex, Gemini CLI + Ollama HTTP)
+- Relation Engine (3단계 추출) + 충돌 감지
+- Audit Trail (SHA-256 해시 체인) + mutate_audited MCP
+- Mission Control Dashboard (Hono + htmx)
+- 117 tests, 4 MCP tools, 4 AI providers
 
-### Phase 4: Polish (MVP-1 이후)
+**Phase 2 완성물:**
+- React SPA 전환 (htmx 완전 제거): React 19 + Vite 7 + Tailwind 4
+- 6개 Dashboard 페이지: Health, Explorer, Graph, Conflicts, Audit, Settings
+- Drizzle ORM 마이그레이션
+- Knowledge Graph (React Flow + dagre 자동 레이아웃)
+- aimux SDK 추출 (packages/aimux/)
 
-- 스코어링 품질 개선 (현재 composite 0.217 → 목표 0.5+)
+**Phase 2.5 진행 중 (PR #7):**
+- Settings 페이지 (provider 관리, Index 제어, Knowledge Query)
+- AI doc classification (LLM으로 문서 유형 자동 분류)
+- File-level AI relation extraction (코사인 유사도 대신 LLM 직접 추론)
+- dagre 자동 레이아웃
+
+### Phase 4: Polish
+
+- 스코어링 품질 개선 (현재 composite 0.188 → 목표 0.5+)
 - 한국어 토큰화 개선 (조사 처리)
 - 에러 복구 강화 (SQLite/LanceDB 원자성)
 - npm publish + GitHub Actions CI
+- aimux v0.2.0 (Credential Scheduler + Retry)
 
 ### Phase 5: Handoff
 
 - README에 설치/사용 가이드 완비
 - AGENTS.md에 코딩 규칙 문서화
-- DDMI.md에 전체 아키텍처 + 설계 결정 기록 (1,270줄)
+- DDMI.md에 전체 아키텍처 + 설계 결정 기록 (1,360줄+)
 - CHANGELOG.md로 버전별 변경 추적
 - 이 대화에 의존하지 않아도 누구든 프로젝트를 이어갈 수 있도록 문서화
 
@@ -131,25 +143,27 @@ Day 1 실험에서 발견한 것:
 
 ## 현재 프로젝트 상태 (호출 시 참조)
 
-**Phase**: Building (MVP-1 완료 → Phase 2 진입 전)
+**Phase**: Building (Phase 2.5 진행 중)
 
 **완성물:**
 - 소스 코드: TypeScript
 - 테스트: 150개 (19 test files)
 - CLI: init, index, query, serve, eval, audit, status, worker
 - MCP: context_assemble, context_feedback, knowledge_query, mutate_audited
-- Dashboard: Hono + htmx (Health, Conflicts, Audit)
+- Dashboard: React 19 SPA (6페이지: Health, Explorer, Graph, Conflicts, Audit, Settings)
 - AI Providers: claude, codex, gemini, ollama (4개)
-- Degradation: Level 0 (BM25) → Level 1 (벡터) → Level 2 (LLM)
+- AI Intelligence: doc classification, file-level relation extraction, conflict detection
+- Degradation: Level 0 (BM25) → Level 1 (벡터) → Level 2 (LLM + AI 분류/추출)
+- aimux SDK: 독립 패키지 (packages/aimux/)
 
 **미해결 기술 부채:**
-1. Dashboard 시각화 부재 (텍스트 UI만)
-2. eval composite 0.188 (목표 0.5+)
-3. 50+ 파일 스케일 미검증
+1. eval composite 0.188 (목표 0.5+)
+2. 50+ 파일 스케일 미검증
+3. Phase 2.5 PR #7 미머지
 
 **경쟁 환경:**
-- 차별화: 감사 추적(해시 체인) + 충돌 감지 + 피드백 학습
-- 기본기: 파일 탐색, 그래프 시각화, 검색 UI 필요 (Phase 2)
+- 차별화: 감사 추적(해시 체인) + 충돌 감지 + 피드백 학습 + AI 문서 분류
+- 기본기 완비: 파일 탐색, 그래프 시각화, 검색 UI, Settings 모두 구현
 
 ---
 

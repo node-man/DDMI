@@ -14,26 +14,26 @@ ddmi (**Document-Driven Memory Infrastructure**) — AI Agent가 프로젝트의
 
 **태그라인**: Drift monitor & integrity layer for AI agents.
 
-### 현재 상태 (MVP-1 완료)
+### 현재 상태 (Phase 2.5 진행 중)
 
 완성된 것:
-- Semantic Index + Context Curator + MCP Server (MVP-0)
-- AI Provider (claude, codex, gemini, ollama) + knowledge_query
-- Relation Engine (3단계 추출) + 충돌 감지 + SQLite 큐 worker
-- Audit Trail (SHA-256 해시 체인) + mutate_audited MCP
-- Mission Control Dashboard (Hono + htmx)
-- 150 tests, 19 test files
+- **MVP-0 (v0.1.0)**: Semantic Index + Context Curator + MCP Server
+- **MVP-1 (v0.2.0)**: AI Provider (claude, codex, gemini, ollama) + knowledge_query + Relation Engine + Audit Trail + Dashboard (htmx)
+- **Phase 2**: React SPA 전환 완료 — 6개 Dashboard 페이지 (Health, Explorer, Graph, Conflicts, Audit, Settings)
+- **Phase 2.5 (PR #7, 진행 중)**: Settings 페이지, AI doc classification, file-level relation extraction, dagre 자동 레이아웃
+- **aimux SDK (PR #6, merged)**: AI CLI multiplexer 독립 패키지 추출
+- 150 tests, 19 test files, 21 React components
 - Rate Limiter + AI call JSONL logging
 
-**MVP-1 회고에서 발견한 이슈** (docs/MVP1-RETROSPECTIVE.md):
-1. Dashboard 시각화 부재
-2. eval composite 0.188
+**이전 회고에서 발견한 이슈**:
+1. ~~Dashboard 시각화 부재~~ → Phase 2에서 해결 (React SPA + ECharts + React Flow)
+2. eval composite 0.188 → 미해결 (목표 0.5+)
 3. QA 에이전트가 테스트 커버리지 갭을 늦게 발견
-4. Gemini CLI 할당량 폭주 사고 → API Safety Rules
+4. Gemini CLI 할당량 폭주 사고 → API Safety Rules 적용
 
 ### 기술 스택
 
-TypeScript, Node.js, SQLite(better-sqlite3), LanceDB, @xenova/transformers, @modelcontextprotocol/sdk, remark, chokidar, commander, vitest
+TypeScript, Node.js, SQLite(better-sqlite3 + Drizzle ORM), LanceDB, @xenova/transformers, @modelcontextprotocol/sdk, React 19, Vite 7, Tailwind 4, React Flow, ECharts, remark, chokidar, commander, vitest
 
 ### 핵심 원칙
 
@@ -43,17 +43,37 @@ TypeScript, Node.js, SQLite(better-sqlite3), LanceDB, @xenova/transformers, @mod
 4. **피드백 루프 = 해자** — feedback_log 축적 → 프로젝트별 학습 (Phase 2)
 5. **오픈소스 (MIT)** — 코드 보호 대신 포맷/데이터 축적으로 해자
 
-## MVP-1 로드맵 (5주)
+## 로드맵
 
-참조: docs/DDMI.md § 8, MVP-1 섹션
+참조: docs/DDMI.md § 8~9
 
-| 주차 | 목표 | 핵심 산출물 |
-|------|------|------------|
-| Week 4 | AI Provider 추상화 | provider.ts, router.ts, CLI/Ollama/API providers, healthCheck, knowledge_query |
-| Week 5 | Relation Engine | 명시적 링크, 임베딩 유사도 후보, 충돌 감지, AITaskQueue 배치 |
-| Week 6 | Audit Trail | append-only 로그, 해시 체인, mutate_audited MCP, ddmi audit CLI |
-| Week 7 | Mission Control v0 | Hono+htmx Dashboard, Decision Queue, Audit 페이지 |
-| Week 8 | 통합 테스트 | end-to-end 검증, 문서 업데이트 |
+### 완료된 마일스톤
+
+| Phase | 버전 | 핵심 산출물 |
+|-------|------|------------|
+| MVP-0 | v0.1.0 | Semantic Index, Context Curator, context_assemble/context_feedback MCP, CLI, eval |
+| MVP-1 Week 4 | v0.2.0 | AI Provider 추상화, knowledge_query MCP |
+| MVP-1 Week 5 | v0.2.0 | Relation Engine (3단계 추출), 충돌 감지 |
+| MVP-1 Week 6 | v0.2.0 | Audit Trail (SHA-256 해시 체인), mutate_audited MCP |
+| MVP-1 Week 7 | v0.2.0 | Hono+htmx Dashboard (Health, Conflicts, Audit) |
+| Phase 2 | - | React SPA 전환 (6페이지), Drizzle ORM, aimux SDK 추출 |
+
+### 현재 진행 (Phase 2.5, PR #7)
+
+| 기능 | 상태 | 설명 |
+|------|------|------|
+| Settings 페이지 | 완료 | ProviderCard, IndexControl, KnowledgeQueryPanel |
+| AI doc classification | 완료 | 인덱싱 시 LLM으로 docType 자동 분류 |
+| File-level relation extraction | 완료 | LLM 직접 추론 (코사인 유사도 대체) |
+| dagre 자동 레이아웃 | 완료 | Knowledge Graph 자동 배치 |
+| PR #7 머지 | 대기 | 코드 리뷰 후 머지 |
+
+### 다음 단계 (후보)
+
+- eval composite 개선 (0.188 → 0.5+)
+- npm publish + GitHub Actions CI
+- aimux v0.2.0 (Credential Scheduler)
+- Phase 3: Intelligence + Multi-agent (피드백 가중치 학습, shared_memory)
 
 ## 작업 수행 프로토콜
 
@@ -107,15 +127,16 @@ TypeScript, Node.js, SQLite(better-sqlite3), LanceDB, @xenova/transformers, @mod
 
 ## 리스크 관리
 
-### 알려진 리스크 (MVP-0에서 식별)
+### 알려진 리스크
 
-| 리스크 | 영향 | 완화 |
-|--------|------|------|
-| 스코어링 품질 낮음 | 사용자가 가치를 못 느낌 | Curator 테스트 + 가중치 튜닝 (Week 4 전) |
-| config.toml 미연동 | 사용자가 설정 변경 불가 | Week 4에 TOML 파서 추가 |
-| LLM provider 호환성 | CLI 도구 버전 변경 시 파손 | healthCheck + fallback 체인 |
-| LanceDB 플랫폼 이슈 | ARM Linux 설치 실패 | 에러 메시지 + fallback 안내 |
-| 경쟁 프로젝트 | 차별화 실패 | 감사 추적 + 충돌 감지에 집중 |
+| 리스크 | 영향 | 완화 | 상태 |
+|--------|------|------|------|
+| 스코어링 품질 낮음 (0.188) | 사용자가 가치를 못 느낌 | 가중치 튜닝 + AI doc classification | 미해결 |
+| ~~config.toml 미연동~~ | ~~사용자가 설정 변경 불가~~ | ~~TOML 파서 추가~~ | 해결 |
+| LLM provider 호환성 | CLI 도구 버전 변경 시 파손 | healthCheck + fallback 체인 | 완화됨 |
+| LanceDB 플랫폼 이슈 | ARM Linux 설치 실패 | 에러 메시지 + fallback 안내 | 미해결 |
+| 경쟁 프로젝트 | 차별화 실패 | 감사 추적 + 충돌 감지 + AI 분류에 집중 | 진행 중 |
+| Gemini CLI 할당량 | API 과금 사고 | Rate Limiter + API Safety Rules | 해결 |
 
 ### 새 리스크 발견 시
 
