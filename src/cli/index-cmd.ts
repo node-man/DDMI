@@ -20,6 +20,7 @@ import {
   getChunkCount,
   upsertFTS,
   deleteFTSByFileId,
+  getChunksByFileId,
 } from "../storage/sqlite.js";
 import {
   initVectorStore,
@@ -228,19 +229,63 @@ export async function runIndex(
     const pairs = await relationEngine.findSimilarPairs(changedChunkIds);
 
     // 2.5. 유사도 쌍을 embedding 관계로 저장 (그래프에 표시)
+    //   AI provider가 있으면 LLM에 관계 타입을 물어봄, 없으면 "references"로 저장
     if (pairs.length > 0) {
       const { insertRelations } = await import("../storage/sqlite.js");
       const now = new Date().toISOString();
-      const simRelations = pairs.map((p) => ({
-        id: `sim-${p.a.slice(0, 6)}-${p.b.slice(0, 6)}`,
-        sourceChunkId: p.a,
-        targetChunkId: p.b,
-        relationType: "references" as const,
-        confidence: p.similarity,
-        extractionMethod: "embedding" as const,
-        metadata: { similarity: p.similarity },
-        createdAt: now,
-      }));
+
+      // AI 관계 타입 추론 결과 캐시
+      const aiRelationTypes = new Map<string, { relationType: string; confidence: number }>();
+
+      if (aiProvider) {
+        console.log(`  AI relation extraction: ${pairs.length} pairs...`);
+        for (const p of pairs) {
+          try {
+            const chunkA = db.prepare("SELECT content, section_path FROM chunks WHERE id = ?").get(p.a) as { content: string; section_path: string } | undefined;
+            const chunkB = db.prepare("SELECT content, section_path FROM chunks WHERE id = ?").get(p.b) as { content: string; section_path: string } | undefined;
+            if (!chunkA || !chunkB) continue;
+
+            const prompt = `Analyze the relationship between these two document chunks.
+
+Chunk A: ${chunkA.content.slice(0, 400)}
+Chunk B: ${chunkB.content.slice(0, 400)}
+
+Choose the relationship type:
+- references: A mentions or cites B
+- depends_on: A requires B to be correct
+- derived_from: A was created based on B
+- supersedes: A replaces or updates B
+- contradicts: A conflicts with B
+
+Respond with JSON: {"relationType": "one_of_above", "confidence": 0.0-1.0}`;
+
+            const result = await aiProvider.chatJSON<{ relationType: string; confidence: number }>(prompt);
+            const validTypes = ["references", "depends_on", "derived_from", "supersedes", "contradicts"];
+            if (validTypes.includes(result.relationType)) {
+              aiRelationTypes.set(`${p.a}-${p.b}`, result);
+            }
+          } catch {
+            // 분류 실패 시 기본값 "references"로
+          }
+        }
+        if (aiRelationTypes.size > 0) {
+          console.log(`  AI classified ${aiRelationTypes.size}/${pairs.length} relation types`);
+        }
+      }
+
+      const simRelations = pairs.map((p) => {
+        const aiResult = aiRelationTypes.get(`${p.a}-${p.b}`);
+        return {
+          id: `sim-${p.a.slice(0, 6)}-${p.b.slice(0, 6)}`,
+          sourceChunkId: p.a,
+          targetChunkId: p.b,
+          relationType: (aiResult?.relationType ?? "references") as "references" | "depends_on" | "derived_from" | "supersedes" | "contradicts",
+          confidence: aiResult?.confidence ?? p.similarity,
+          extractionMethod: (aiResult ? "ai" : "embedding") as "explicit" | "embedding" | "ai",
+          metadata: { similarity: p.similarity },
+          createdAt: now,
+        };
+      });
       insertRelations(db, simRelations);
     }
 
@@ -291,6 +336,51 @@ export async function runIndex(
     const stats = relationEngine.stats();
     if (stats.relations > 0 || stats.openConflicts > 0) {
       console.log(`  Total: ${stats.relations} relations, ${stats.openConflicts} open conflicts`);
+    }
+
+    // 4. AI doc_classification — docType이 "unknown"인 파일 자동 분류
+    if (aiProvider) {
+      const unknownFiles = db.prepare(
+        "SELECT id, path FROM files WHERE doc_type = 'unknown'"
+      ).all() as Array<{ id: string; path: string }>;
+
+      if (unknownFiles.length > 0) {
+        console.log(`  AI doc classification: ${unknownFiles.length} unknown files...`);
+        let classified = 0;
+
+        for (const file of unknownFiles) {
+          try {
+            const firstChunk = getChunksByFileId(db, file.id);
+            if (firstChunk.length === 0) continue;
+
+            const prompt = `Classify this document into ONE type: spec, decision, meeting, research, sprint, task, agent, guide, config, changelog, readme, plan, retrospective.
+
+Document path: ${file.path}
+Content (first 500 chars):
+${firstChunk[0].content.slice(0, 500)}
+
+Respond with JSON: {"docType": "one_of_the_types"}`;
+
+            const result = await aiProvider.chatJSON<{ docType: string }>(prompt);
+            const validTypes = [
+              "spec", "decision", "meeting", "research", "sprint", "task",
+              "agent", "guide", "config", "changelog", "readme", "plan", "retrospective",
+            ];
+
+            if (validTypes.includes(result.docType)) {
+              db.prepare("UPDATE files SET doc_type = ? WHERE id = ?").run(result.docType, file.id);
+              console.log(`    ${file.path} → ${result.docType}`);
+              classified++;
+            }
+          } catch {
+            // 분류 실패 시 "unknown" 유지
+          }
+        }
+
+        if (classified > 0) {
+          console.log(`  Classified ${classified}/${unknownFiles.length} files`);
+        }
+      }
     }
   }
 

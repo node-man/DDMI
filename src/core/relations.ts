@@ -172,9 +172,13 @@ export function createRelationEngine(deps: RelationEngineDeps): RelationEngine {
         let raw: unknown;
         try {
           raw = await deps.aiProvider.chatJSON<unknown>(prompt);
-        } catch {
-          // 빈 응답 또는 JSON 파싱 실패 → no conflict로 간주
-          return [];
+        } catch (chatErr) {
+          // JSON 파싱 실패 (빈 응답 등) → no conflict로 간주
+          // provider 자체 에러 (네트워크, timeout 등) → 상위로 전파
+          if ((chatErr as Error).message?.includes("No valid JSON")) {
+            return [];
+          }
+          throw chatErr;
         }
 
         // LLM이 배열 대신 단일 객체를 반환할 수 있음
