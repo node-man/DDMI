@@ -110,10 +110,10 @@ src/client/
 **작업:**
 - [x] `drizzle-orm` + `drizzle-kit` 설치 (0.45.1 + 0.31.9)
 - [x] `src/storage/schema.ts` — 7개 테이블 Drizzle 스키마 정의
-- [ ] `src/storage/sqlite.ts` — raw SQL → Drizzle 쿼리로 리팩터
-- [ ] 기존 FTS5 virtual table은 raw SQL 유지 (Drizzle 미지원)
-- [ ] 150 tests 전부 통과 확인
-- [ ] CRUD 30+ 함수의 파라미터 타입 안전 확인
+- [x] `src/storage/sqlite.ts` — 30+ CRUD 함수 Drizzle 쿼리로 전환 완료
+- [x] FTS5 + dequeueTasks + getAuditEvents + deleteRelationsByFileChunks는 raw SQL 유지
+- [x] 150 tests 전부 통과
+- [x] WeakMap 캐시로 Drizzle 인스턴스 관리, 함수 시그니처 0 변경
 
 **검증:** `npx vitest run` 전부 통과 + `npx tsc` 0 errors
 
