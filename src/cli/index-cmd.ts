@@ -227,6 +227,23 @@ export async function runIndex(
     // 2. 임베딩 유사도 후보 (Level 1)
     const pairs = await relationEngine.findSimilarPairs(changedChunkIds);
 
+    // 2.5. 유사도 쌍을 embedding 관계로 저장 (그래프에 표시)
+    if (pairs.length > 0) {
+      const { insertRelations } = await import("../storage/sqlite.js");
+      const now = new Date().toISOString();
+      const simRelations = pairs.map((p) => ({
+        id: `sim-${p.a.slice(0, 6)}-${p.b.slice(0, 6)}`,
+        sourceChunkId: p.a,
+        targetChunkId: p.b,
+        relationType: "references" as const,
+        confidence: p.similarity,
+        extractionMethod: "embedding" as const,
+        metadata: { similarity: p.similarity },
+        createdAt: now,
+      }));
+      insertRelations(db, simRelations);
+    }
+
     // 3. 충돌 감지
     let conflictCount = 0;
     if (pairs.length > 0) {
