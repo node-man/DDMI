@@ -492,3 +492,49 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
 | Hono API 유지 + Vite dev server 프록시 | Section 1: 개발/프로덕션 아키텍처 다이어그램 |
 | Health Dashboard 가장 먼저 | Week 2에 배치 (가장 먼저 완성되는 시각화 컴포넌트) |
 | Knowledge Graph를 중간에 배치 | Week 4~5에 배치 (마지막이 아닌 중간, Explorer 다음) |
+
+---
+
+## Phase 2.5 — Dashboard Admin (웹 기반 운영 인터페이스)
+
+> CLI 없이 Dashboard에서 인덱싱, provider 선택, knowledge query 등 AI 기능을 제어한다.
+
+### Settings 페이지
+
+**Provider 관리:**
+- 사용 가능한 provider 목록 (healthCheck 결과)
+- provider별 모델 선택 (ollama: qwen3.5:9b/27b, claude: opus/sonnet 등)
+- 연결 상태 표시 (● Connected / ○ Disconnected)
+
+**인덱싱 제어:**
+- [Index] — 증분 인덱싱 (변경된 파일만)
+- [Reindex] — 전체 재인덱싱 (init + index)
+- [Index + AI] — 인덱싱 + LLM 충돌 분석
+- 진행률 표시 (실시간 폴링)
+- 마지막 인덱싱 시간 + 결과 요약
+
+**Knowledge Query:**
+- 웹에서 자연어 질의 + 답변 확인
+- 선택된 provider/모델 사용
+
+### 필요한 API
+
+| Method | Path | 기능 |
+|--------|------|------|
+| GET | `/api/providers` | 사용 가능한 provider + 모델 + healthCheck 상태 |
+| POST | `/api/index` | 인덱싱 시작 `{provider?, incremental?}` |
+| POST | `/api/reindex` | 재인덱싱 (rm .ddmi + init + index) |
+| GET | `/api/index/status` | 진행 상태 `{status, progress, filesTotal, filesProcessed}` |
+| POST | `/api/knowledge-query` | 웹 knowledge_query `{question, provider?}` |
+
+### 컴포넌트
+
+| 컴포넌트 | 위치 |
+|----------|------|
+| `SettingsPage.tsx` | 전체 페이지 |
+| `ProviderSelector.tsx` | provider + 모델 드롭다운 |
+| `IndexControl.tsx` | 인덱싱 버튼 + 진행률 |
+| `KnowledgeQueryPanel.tsx` | 질의 입력 + 답변 표시 |
+
+### Sidebar 업데이트
+- 6번째 항목: Settings (Lucide: Settings 아이콘)
