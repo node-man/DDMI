@@ -259,15 +259,6 @@ function runCLI(config: CLIConfig, prompt: string): Promise<string> {
 
 // ─── Monitoring ──────────────────────────────────────────
 
-/** 현재 활성 CLI 프로세스 정보 */
-export function getActiveProcesses(): Array<{ pid: number; runningMs: number }> {
-  const now = Date.now();
-  return [...activeProcesses.entries()].map(([pid, { startedAt }]) => ({
-    pid,
-    runningMs: now - startedAt,
-  }));
-}
-
 /** 남은 프로세스 강제 종료 (router.shutdown에서 호출) */
 export function cleanupProcesses(): void {
   for (const [pid, { child }] of activeProcesses) {

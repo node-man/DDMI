@@ -122,9 +122,7 @@ Behavior requirements when this agent is active:
 
 ### QA Agent
 
-When the user explicitly asks for destructive, adversarial, or stress-oriented QA, load and follow:
-
-- `docs/agents/QA_AGENT.md`
+When the user explicitly asks for destructive, adversarial, or stress-oriented QA, use the `/qa` slash command (`.claude/commands/qa.md`).
 
 ## Commit Convention
 

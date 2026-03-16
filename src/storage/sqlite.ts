@@ -9,7 +9,7 @@
 
 import Database from "better-sqlite3";
 import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
-import { eq, and, desc, asc, count, sql, or, lt, gt, isNull } from "drizzle-orm";
+import { eq, and, desc, asc, count, sql, or, lt } from "drizzle-orm";
 import * as schema from "./schema.js";
 import type {
   FileRecord,
@@ -24,6 +24,10 @@ import type {
 } from "../types.js";
 
 // ─── Schema ──────────────────────────────────────────────
+// NOTE: 테이블 구조의 진실원은 schema.ts (Drizzle ORM 정의).
+// 이 SQL은 initDatabase() DDL용으로만 사용.
+// FTS5 virtual table은 Drizzle가 지원하지 않아 raw SQL 유지 필수.
+// 테이블 구조 변경 시 schema.ts와 반드시 동기화할 것.
 
 const SCHEMA_VERSION = 1;
 
