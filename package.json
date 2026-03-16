@@ -10,10 +10,14 @@
   },
   "scripts": {
     "build": "tsc",
+    "build:client": "vite build --config vite.config.client.ts",
+    "build:all": "tsc && vite build --config vite.config.client.ts",
     "dev": "tsc && node dist/cli/main.js serve --dashboard-only --port 3001 --watch",
     "dev:client": "vite --config vite.config.client.ts",
-    "build:client": "vite build --config vite.config.client.ts",
     "dev:build": "tsc --watch",
+    "index": "tsc && node dist/cli/main.js index --provider ollama",
+    "index:claude": "tsc && node dist/cli/main.js index --provider claude",
+    "index:fast": "tsc && node dist/cli/main.js index",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "lint": "tsc --noEmit"
