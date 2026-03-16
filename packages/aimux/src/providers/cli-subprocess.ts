@@ -28,28 +28,28 @@ const CLI_TOOLS: Record<string, CLIConfig> = {
     command: "claude",
     args: ["-p", "--output-format", "text"],
     name: "Claude CLI",
-    timeoutMs: 60000,
+    timeoutMs: 0,
     promptMode: "stdin",
   },
   codex: {
     command: "codex",
     args: ["exec", "-"],
     name: "Codex CLI",
-    timeoutMs: 60000,
+    timeoutMs: 0,
     promptMode: "stdin",
   },
   gemini: {
     command: "gemini",
     args: ["-p", "", "-m", "gemini-3-flash-preview"],
     name: "Gemini CLI",
-    timeoutMs: 60000,
+    timeoutMs: 0,
     promptMode: "stdin",
   },
   llm: {
     command: "llm",
     args: [],
     name: "llm CLI",
-    timeoutMs: 60000,
+    timeoutMs: 0,
     promptMode: "stdin",
   },
 };
@@ -224,16 +224,16 @@ function runCLI(config: CLIConfig, prompt: string): Promise<string> {
     child.stdout?.on("data", (data: Buffer) => { stdout += data.toString(); });
     child.stderr?.on("data", (data: Buffer) => { stderr += data.toString(); });
 
-    // Timeout
-    const timer = setTimeout(() => {
-      if (child.pid) {
-        killGracefully(child, child.pid);
-      }
-      reject(new Error(`${config.name} timeout after ${config.timeoutMs}ms`));
-    }, config.timeoutMs);
+    // Timeout (0 = 무제한)
+    const timer = config.timeoutMs > 0
+      ? setTimeout(() => {
+          if (child.pid) killGracefully(child, child.pid);
+          reject(new Error(`${config.name} timeout after ${config.timeoutMs}ms`));
+        }, config.timeoutMs)
+      : null;
 
     child.on("close", (code) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (child.pid) activeProcesses.delete(child.pid);
 
       if (code !== 0) {
@@ -244,7 +244,7 @@ function runCLI(config: CLIConfig, prompt: string): Promise<string> {
     });
 
     child.on("error", (err) => {
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       if (child.pid) activeProcesses.delete(child.pid);
       reject(new Error(`${config.name} spawn error: ${err.message}`));
     });
