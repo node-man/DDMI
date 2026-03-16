@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { BarChart3, GitBranch, Shield, Clock, Activity } from "lucide-react";
+import { BarChart3, GitBranch, Shield, Clock, Activity, Settings } from "lucide-react";
 
 const nav = [
   { name: "Health", path: "/", icon: Activity },
@@ -7,6 +7,7 @@ const nav = [
   { name: "Graph", path: "/graph", icon: GitBranch },
   { name: "Conflicts", path: "/conflicts", icon: Shield },
   { name: "Audit", path: "/audit", icon: Clock },
+  { name: "Settings", path: "/settings", icon: Settings },
 ];
 
 export function Sidebar({ current }: { current: string }) {
@@ -35,7 +36,7 @@ export function Sidebar({ current }: { current: string }) {
         ))}
       </nav>
       <div className="px-4 py-3 border-t border-zinc-800 text-xs text-zinc-600">
-        v0.2.0 · Phase 2
+        v0.2.5 · Phase 2.5
       </div>
     </aside>
   );

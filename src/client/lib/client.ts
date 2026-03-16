@@ -100,6 +100,20 @@ export interface GraphData {
   edges: GraphEdge[];
 }
 
+export interface ProviderInfo {
+  name: string;
+  type: "cli" | "ollama";
+  status: "available" | "unavailable";
+  models?: string[];
+}
+
+export interface IndexStatus {
+  running: boolean;
+  progress?: string;
+  lastResult?: string;
+  lastIndexedAt?: string;
+}
+
 // ─── API Calls ────────────────────────────────────────
 
 export const api = {
@@ -107,6 +121,8 @@ export const api = {
   conflicts: () => get<Conflict[]>("/conflicts"),
   resolveConflict: (id: string, resolvedBy: string, note: string) =>
     post<{ success: boolean }>(`/conflicts/${id}/resolve`, { resolvedBy, note }),
+  analyzeConflict: (id: string) =>
+    post<{ analysis: string }>(`/conflicts/${id}/analyze`, {}),
   audit: (limit = 50, type?: string, file?: string) => {
     const params = new URLSearchParams({ limit: String(limit) });
     if (type) params.set("type", type);
@@ -117,4 +133,10 @@ export const api = {
   fileChunks: (fileId: string) => get<ChunkItem[]>(`/files/${fileId}/chunks`),
   search: (query: string) => get<SearchResult[]>(`/search?q=${encodeURIComponent(query)}`),
   graph: () => get<GraphData>("/graph"),
+  providers: () => get<ProviderInfo[]>("/providers"),
+  startIndex: (provider?: string, incremental?: boolean) =>
+    post<{ started: boolean }>("/index", { provider, incremental }),
+  indexStatus: () => get<IndexStatus>("/index/status"),
+  knowledgeQuery: (question: string) =>
+    post<{ answer: string }>("/knowledge-query", { question }),
 };

@@ -5,6 +5,7 @@ import { ExplorerPage } from "./components/explorer/ExplorerPage";
 import { GraphPage } from "./components/graph/GraphPage";
 import { ConflictsPage } from "./components/conflicts/ConflictsPage";
 import { AuditPage } from "./components/audit/AuditPage";
+import { SettingsPage } from "./components/settings/SettingsPage";
 
 function AppLayout() {
   const { pathname } = useLocation();
@@ -18,6 +19,7 @@ function AppLayout() {
           <Route path="/graph" element={<GraphPage />} />
           <Route path="/conflicts" element={<ConflictsPage />} />
           <Route path="/audit" element={<AuditPage />} />
+          <Route path="/settings" element={<SettingsPage />} />
         </Routes>
       </main>
     </div>
