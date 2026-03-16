@@ -83,14 +83,17 @@ npm run dev:client  # Vite dev server (hot reload)
 
 ## AI Intelligence
 
-When indexed with an AI provider (`--provider ollama|claude|codex`), ddmi enables:
+When indexed with an AI provider (`--provider ollama|claude|codex`), ddmi performs **1 LLM call** to analyze all files:
 
 | Feature | Description |
 |---------|-------------|
-| **Doc Classification** | LLM auto-classifies document types (decision, spec, meeting, research) |
-| **File-level Relation Extraction** | LLM directly infers relations between files (replaces similarity-based approach) |
-| **Conflict Detection** | LLM identifies contradictions between document sections with severity rating |
+| **Unified AI Prompt** | 1 LLM call for all analysis — classification + relation extraction + conflict detection in a single prompt |
+| **Doc Classification** | Auto-classifies document types (decision, spec, meeting, research) |
+| **Relation Extraction** | Directly infers relations between files (depends_on, derived_from, contradicts, etc.) |
+| **Conflict Detection** | Identifies contradictions between document sections with severity rating |
 | **Knowledge Query** | Natural language Q&A over project docs via MCP or Dashboard |
+
+Evolution: v1 (46 calls, timeout/rate limit) → v2 (3 calls, redundant context) → v3 (1 unified call).
 
 Without an AI provider, ddmi still works at Level 1 (embedding + vector search) with zero LLM calls.
 

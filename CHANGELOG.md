@@ -16,8 +16,7 @@ React SPA Dashboard + AI Intelligence + aimux SDK extraction.
 
 ### Phase 2.5: Dashboard AI Operations (PR #7, in progress)
 - **Settings page**: AI provider status, index control (reindex/incremental), knowledge query panel
-- **AI doc classification**: LLM auto-classifies document types during indexing
-- **File-level AI relation extraction**: LLM directly infers relations between files (replaces cosine similarity-based approach)
+- **Unified AI prompt (1 LLM call)**: classification + relation extraction + conflict detection in a single prompt (v1: 46 calls → v2: 3 calls → v3: 1 call). First Principles: "classification, relations, conflicts are separate tasks" was a false premise — same file context need not be read 3 times.
 - **dagre auto-layout**: Automatic graph layout for Knowledge Graph (replaces manual force-directed)
 - **Conflict detection fixes**: Handle empty/non-array LLM responses, lower similarity threshold (0.85 → 0.75)
 - **Dynamic provider resolution**: AI provider and curator resolved per-request (PR #7 fix)
