@@ -18,6 +18,9 @@ import {
   getOpenConflicts,
   resolveConflict,
   getAuditEvents,
+  getAllFiles,
+  getChunksByFileId,
+  searchBM25,
 } from "../storage/sqlite.js";
 import { createAuditTrail } from "../core/audit.js";
 
@@ -79,6 +82,25 @@ export function startDashboard(db: Database.Database, dbPath: string, port: numb
       targetFile: file ?? undefined,
     });
     return c.json(events);
+  });
+
+  // ─── API: Files (Explorer) ─────────────────────────────
+  app.get("/api/files", (c) => {
+    const files = getAllFiles(db);
+    return c.json(files);
+  });
+
+  app.get("/api/files/:id/chunks", (c) => {
+    const chunks = getChunksByFileId(db, c.req.param("id"));
+    return c.json(chunks);
+  });
+
+  // ─── API: Search (BM25) ──────────────────────────────
+  app.get("/api/search", (c) => {
+    const q = c.req.query("q");
+    if (!q) return c.json([]);
+    const results = searchBM25(db, q, 20);
+    return c.json(results);
   });
 
   // ─── SPA: React 정적 파일 서빙 (프로덕션) ──────────────

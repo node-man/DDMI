@@ -51,6 +51,36 @@ export interface AuditEvent {
   rationale?: string;
 }
 
+export interface FileItem {
+  id: string;
+  path: string;
+  title: string | null;
+  docType: string;
+  totalTokens: number;
+  completenessScore: number;
+  updatedAt: string;
+}
+
+export interface ChunkItem {
+  id: string;
+  fileId: string;
+  sectionPath: string;
+  content: string;
+  tokenCount: number;
+  chunkType: string;
+}
+
+export interface SearchResult {
+  chunkId: string;
+  fileId: string;
+  filePath: string;
+  sectionPath: string;
+  content: string;
+  docType: string;
+  tokenCount: number;
+  rank: number;
+}
+
 // ─── API Calls ────────────────────────────────────────
 
 export const api = {
@@ -59,4 +89,7 @@ export const api = {
   resolveConflict: (id: string, resolvedBy: string, note: string) =>
     post<{ success: boolean }>(`/conflicts/${id}/resolve`, { resolvedBy, note }),
   audit: (limit = 50) => get<AuditEvent[]>(`/audit?limit=${limit}`),
+  files: () => get<FileItem[]>("/files"),
+  fileChunks: (fileId: string) => get<ChunkItem[]>(`/files/${fileId}/chunks`),
+  search: (query: string) => get<SearchResult[]>(`/search?q=${encodeURIComponent(query)}`),
 };
