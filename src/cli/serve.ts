@@ -69,7 +69,10 @@ export async function runServe(
   async function getFreshRouter() {
     if (Date.now() - lastRouterRefresh > ROUTER_TTL_MS) {
       try {
-        cachedRouter = await createRouter(loadConfig(projectRoot));
+        // embedder는 재사용 (무거움), provider 감지만 갱신
+        cachedRouter = await createRouter(loadConfig(projectRoot), {
+          existingEmbedder: cachedEmbedder,
+        });
         lastRouterRefresh = Date.now();
       } catch { /* keep existing router */ }
     }

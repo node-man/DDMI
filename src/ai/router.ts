@@ -10,12 +10,16 @@ import {
   createRouter as createAimuxRouter,
   type AIRouter as AimuxRouter,
   type RouterConfig,
+  type EmbeddingProvider,
 } from "aimux";
 
 // Re-export AIRouter — 기존 코드 호환
 export type AIRouter = AimuxRouter;
 
-export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
+export async function createRouter(
+  config: DdmiConfig,
+  options?: { existingEmbedder?: EmbeddingProvider },
+): Promise<AIRouter> {
   const routerConfig: RouterConfig = {
     defaultProvider: config.ai.defaultProvider,
     ollamaUrl: config.ai.ollamaUrl,
@@ -23,5 +27,5 @@ export async function createRouter(config: DdmiConfig): Promise<AIRouter> {
     embeddingModel: config.embedding.model,
   };
 
-  return createAimuxRouter(routerConfig);
+  return createAimuxRouter(routerConfig, options);
 }
