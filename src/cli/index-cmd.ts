@@ -70,6 +70,7 @@ export async function runIndex(
 
   // 관계 추출용 데이터 수집
   const allFileIds = new Map<string, string>(); // path → fileId
+  const changedFilePaths = new Set<string>(); // 이번 실행에서 변경된 파일
   const changedFileLinks: Array<{ fileId: string; links: ExplicitLink[] }> = [];
   const changedChunkIds: string[] = [];
 
@@ -186,6 +187,7 @@ export async function runIndex(
       });
 
       indexed++;
+      changedFilePaths.add(relPath);
       console.log(` ${chunks.length} chunks`);
 
       // 관계 추출용 데이터 수집
@@ -284,10 +286,20 @@ export async function runIndex(
           ).join("\n");
       }
 
-      // 프롬프트 크기 제한: 파일 요약 최대 50개, 유사 쌍 최대 20개
+      // 프롬프트 크기 제한: 변경 파일 우선, 최대 50개 + 유사 쌍 20개
       const MAX_FILE_SUMMARIES = 50;
       const MAX_PAIRS = 20;
-      const cappedSummaries = fileSummaries.slice(0, MAX_FILE_SUMMARIES);
+      // 변경된 파일을 먼저, 나머지를 뒤에 배치
+      const changedSummaries = fileSummaries.filter((_, i) => {
+        const path = [...allFileIds.keys()][i];
+        return changedFilePaths.has(path);
+      });
+      const unchangedSummaries = fileSummaries.filter((_, i) => {
+        const path = [...allFileIds.keys()][i];
+        return !changedFilePaths.has(path);
+      });
+      const prioritized = [...changedSummaries, ...unchangedSummaries];
+      const cappedSummaries = prioritized.slice(0, MAX_FILE_SUMMARIES);
       if (fileSummaries.length > MAX_FILE_SUMMARIES) {
         cappedSummaries.push(`... and ${fileSummaries.length - MAX_FILE_SUMMARIES} more files (omitted for context limit)`);
       }

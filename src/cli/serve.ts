@@ -59,11 +59,22 @@ export async function runServe(
   const level = router.getDegradationLevel();
   console.error(`[ddmi] Level ${level} | Providers: ${providers.length > 0 ? providers.join(", ") : "none"}`);
 
-  // 캐시된 인스턴스 — 매 요청마다 router/embedder를 재생성하지 않음
-  // lance만 재연결 (인덱싱 후 테이블이 생길 수 있으므로)
-  const cachedRouter = router;
+  // TTL 캐시: embedder는 영구 캐시 (무거움), router는 60초마다 갱신 (provider 감지)
   const cachedEmbedder = router.getEmbeddingProvider();
   const cachedWeights = config.curator.weights;
+  let cachedRouter = router;
+  let lastRouterRefresh = Date.now();
+  const ROUTER_TTL_MS = 60_000;
+
+  async function getFreshRouter() {
+    if (Date.now() - lastRouterRefresh > ROUTER_TTL_MS) {
+      try {
+        cachedRouter = await createRouter(loadConfig(projectRoot));
+        lastRouterRefresh = Date.now();
+      } catch { /* keep existing router */ }
+    }
+    return cachedRouter;
+  }
 
   startDashboard(db, dbPath, options.port ?? 3000, {
     getCuratorDeps: async () => {
@@ -74,7 +85,8 @@ export async function runServe(
       } catch { return null; }
     },
     getAIProvider: async () => {
-      return cachedRouter.getProvider();
+      const rtr = await getFreshRouter();
+      return rtr.getProvider();
     },
     projectRoot,
   });
