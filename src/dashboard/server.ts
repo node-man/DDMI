@@ -1,13 +1,13 @@
 /**
- * Dashboard Server — Hono + htmx
+ * Dashboard Server — Hono API + React SPA 서빙
  *
- * Mission Control: Health, Conflicts, Audit 3페이지.
- * localhost:3000에서 서빙.
+ * API: /api/* 엔드포인트
+ * SPA: dist/client/ 정적 파일 (프로덕션) 또는 Vite proxy (개발)
  */
 
 import { Hono } from "hono";
 import { serve } from "@hono/node-server";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type Database from "better-sqlite3";
 import {
@@ -23,22 +23,6 @@ import { createAuditTrail } from "../core/audit.js";
 
 export function startDashboard(db: Database.Database, dbPath: string, port: number = 3000): void {
   const app = new Hono();
-  // HTML/CSS는 src/ 디렉토리에서 직접 읽음 (tsc가 복사 안 하므로)
-  const srcRoot = join(import.meta.dirname, "../../src/dashboard");
-  const pagesDir = join(srcRoot, "pages");
-  const staticDir = join(srcRoot, "static");
-
-  // ─── Static ────────────────────────────────────────────
-  app.get("/style.css", (c) => {
-    return c.body(readFileSync(join(staticDir, "style.css"), "utf-8"), 200, {
-      "Content-Type": "text/css",
-    });
-  });
-
-  // ─── Pages ─────────────────────────────────────────────
-  app.get("/", (c) => c.html(readFileSync(join(pagesDir, "index.html"), "utf-8")));
-  app.get("/conflicts", (c) => c.html(readFileSync(join(pagesDir, "conflicts.html"), "utf-8")));
-  app.get("/audit", (c) => c.html(readFileSync(join(pagesDir, "audit.html"), "utf-8")));
 
   // ─── API: Health ───────────────────────────────────────
   app.get("/api/health", (c) => {
@@ -72,7 +56,6 @@ export function startDashboard(db: Database.Database, dbPath: string, port: numb
       return c.json({ success: false, error: "Conflict not found or already resolved" }, 404);
     }
 
-    // Audit log — 실제로 상태가 변경된 경우에만
     const trail = createAuditTrail(dbPath);
     trail.log({
       eventType: "conflict_resolved",
@@ -97,6 +80,34 @@ export function startDashboard(db: Database.Database, dbPath: string, port: numb
     });
     return c.json(events);
   });
+
+  // ─── SPA: React 정적 파일 서빙 (프로덕션) ──────────────
+  const clientDist = join(import.meta.dirname, "../../dist/client");
+
+  if (existsSync(clientDist)) {
+    // 정적 에셋 (JS, CSS, 이미지)
+    app.get("/assets/*", (c) => {
+      const filePath = join(clientDist, c.req.path);
+      if (!existsSync(filePath)) return c.notFound();
+      const content = readFileSync(filePath);
+      const ext = filePath.split(".").pop();
+      const mime: Record<string, string> = {
+        js: "application/javascript",
+        css: "text/css",
+        svg: "image/svg+xml",
+        png: "image/png",
+      };
+      return c.body(content, 200, {
+        "Content-Type": mime[ext ?? ""] ?? "application/octet-stream",
+      });
+    });
+
+    // SPA fallback: 모든 비-API 경로 → index.html
+    app.get("*", (c) => {
+      if (c.req.path.startsWith("/api/")) return c.notFound();
+      return c.html(readFileSync(join(clientDist, "index.html"), "utf-8"));
+    });
+  }
 
   // ─── Start ─────────────────────────────────────────────
   serve({ fetch: app.fetch, port }, () => {

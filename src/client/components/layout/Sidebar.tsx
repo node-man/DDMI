@@ -1,3 +1,4 @@
+import { Link } from "react-router-dom";
 import { BarChart3, GitBranch, Shield, Clock, Activity } from "lucide-react";
 
 const nav = [
@@ -19,9 +20,9 @@ export function Sidebar({ current }: { current: string }) {
       </div>
       <nav className="flex-1 px-2 py-3 space-y-0.5">
         {nav.map(({ name, path, icon: Icon }) => (
-          <a
+          <Link
             key={path}
-            href={path}
+            to={path}
             className={`flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors ${
               current === path
                 ? "bg-zinc-800 text-zinc-100 font-medium"
@@ -30,7 +31,7 @@ export function Sidebar({ current }: { current: string }) {
           >
             <Icon className="w-4 h-4" />
             {name}
-          </a>
+          </Link>
         ))}
       </nav>
       <div className="px-4 py-3 border-t border-zinc-800 text-xs text-zinc-600">
