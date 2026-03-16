@@ -59,24 +59,22 @@ export async function runServe(
   const level = router.getDegradationLevel();
   console.error(`[ddmi] Level ${level} | Providers: ${providers.length > 0 ? providers.join(", ") : "none"}`);
 
+  // 캐시된 인스턴스 — 매 요청마다 router/embedder를 재생성하지 않음
+  // lance만 재연결 (인덱싱 후 테이블이 생길 수 있으므로)
+  const cachedRouter = router;
+  const cachedEmbedder = router.getEmbeddingProvider();
+  const cachedWeights = config.curator.weights;
+
   startDashboard(db, dbPath, options.port ?? 3000, {
     getCuratorDeps: async () => {
-      // 요청마다 최신 상태 — 인덱싱 후에도 동작
       try {
         const { initVectorStore } = await import("../storage/lance.js");
         const lance = await initVectorStore(join(ddmiDir, "vectors.lance"));
-        const cfg = loadConfig(projectRoot);
-        const rtr = await createRouter(cfg);
-        return { embedder: rtr.getEmbeddingProvider(), lance, dbPath, weights: cfg.curator.weights };
+        return { embedder: cachedEmbedder, lance, dbPath, weights: cachedWeights };
       } catch { return null; }
     },
     getAIProvider: async () => {
-      // 요청마다 최신 provider 감지
-      try {
-        const cfg = loadConfig(projectRoot);
-        const rtr = await createRouter(cfg);
-        return rtr.getProvider();
-      } catch { return null; }
+      return cachedRouter.getProvider();
     },
     projectRoot,
   });

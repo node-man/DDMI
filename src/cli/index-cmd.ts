@@ -284,11 +284,26 @@ export async function runIndex(
           ).join("\n");
       }
 
+      // 프롬프트 크기 제한: 파일 요약 최대 50개, 유사 쌍 최대 20개
+      const MAX_FILE_SUMMARIES = 50;
+      const MAX_PAIRS = 20;
+      const cappedSummaries = fileSummaries.slice(0, MAX_FILE_SUMMARIES);
+      if (fileSummaries.length > MAX_FILE_SUMMARIES) {
+        cappedSummaries.push(`... and ${fileSummaries.length - MAX_FILE_SUMMARIES} more files (omitted for context limit)`);
+      }
+      if (pairsWithContent.length > MAX_PAIRS) {
+        pairsWithContent = pairsWithContent.slice(0, MAX_PAIRS);
+        pairSummaries = "\n\nSimilar chunk pairs to check for conflicts:\n" +
+          pairsWithContent.map((p, i) =>
+            `Pair ${i}: A(${p.aId}): ${p.aContent.slice(0, 150)} | B(${p.bId}): ${p.bContent.slice(0, 150)}`
+          ).join("\n") + `\n... (capped at ${MAX_PAIRS} pairs)`;
+      }
+
       // 통합 프롬프트
       const prompt = `Analyze this project with ${allFileIds.size} markdown files.
 
 Files:
-${fileSummaries.join("\n")}
+${cappedSummaries.join("\n")}
 ${pairSummaries}
 
 Provide a SINGLE JSON response with three sections:
@@ -310,9 +325,16 @@ If a section has no results, use empty array [].`;
         let raw: unknown;
         try {
           raw = await aiProvider.chatJSON<unknown>(prompt);
-        } catch {
-          console.log(`  AI analysis: JSON parse failed, skipping`);
-          raw = null;
+        } catch (chatErr) {
+          const msg = (chatErr as Error).message ?? "";
+          if (msg.includes("No valid JSON")) {
+            // LLM이 유효한 JSON을 반환하지 않음 — 건너뜀
+            console.log(`  AI analysis: no valid JSON in response, skipping`);
+            raw = null;
+          } else {
+            // 진짜 에러 (timeout, auth, crash 등) — 상위로 전파
+            throw chatErr;
+          }
         }
 
         if (raw && typeof raw === 'object') {

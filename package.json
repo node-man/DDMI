@@ -22,6 +22,9 @@
     "reindex": "rm -rf .ddmi && tsc && node dist/cli/main.js init && node dist/cli/main.js index --provider ollama",
     "reindex:claude": "rm -rf .ddmi && tsc && node dist/cli/main.js init && node dist/cli/main.js index --provider claude",
     "reindex:codex": "rm -rf .ddmi && tsc && node dist/cli/main.js init && node dist/cli/main.js index --provider codex",
+    "query": "node dist/cli/main.js query --debug",
+    "eval": "node dist/cli/main.js eval",
+    "serve": "node dist/cli/main.js serve --port 3001",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "lint": "tsc --noEmit && tsc -p tsconfig.client.json --noEmit"
