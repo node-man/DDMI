@@ -117,7 +117,7 @@ ddmi는 MD를 "관리"하는 게 아니라 "의미를 이해하고 Agent 협업�
 7. **Graceful Degradation (3단계)**: LLM provider가 없어도 ddmi는 작동한다. 기능이 점진적으로 켜지는 구조.
    - **Level 0** (임베딩 모델 다운로드 불가/오프라인): 명시적 링크 관계(`[[wikilink]]`, `[md link]`) + frontmatter 메타데이터 + BM25 키워드 검색으로 기본 컨텍스트 조립.
    - **Level 1** (transformers.js 임베딩만): + 벡터 유사도 검색. 대부분의 사용자가 여기서 시작. npm install만으로 도달.
-   - **Level 2** (+ Ollama 또는 CLI LLM): + 관계 추출, 충돌 감지, 엔티티 추출, 문서 유형 분류. 풀 기능.
+   - **Level 2** (+ Ollama 또는 CLI LLM): + 문서 유형 자동 분류(doc_classification), 파일 단위 AI 관계 추출(file-level relation extraction), 충돌 감지, knowledge_query. 풀 기능.
 8. **배치 우선 AI 호출**: AI 태스크는 개별 실행하지 않고 작업큐에 모아서 배치 실행한다. CLI subprocess 오버헤드를 최소화하고 프롬프트를 병합하여 처리량을 극대화한다.
 
 ---
@@ -1265,16 +1265,27 @@ ddmi의 존재 이유인 "큐레이션 > 전체 덤프" 가설을 **구현 전�
 - "결정문서 Y와 스펙 Z 사이에 새 충돌 감지 — 확인 필요"
 - "피드백 데이터가 100건 이상 → 가중치 자동 튜닝 실행 권장"
 
-#### 기술 선택
+#### 기술 선택 (확정)
 
 | 영역 | 도구 | 이유 |
 |------|------|------|
-| 프론트엔드 프레임워크 | React + Vite | 컴포넌트 재사용, 생태계 |
-| 그래프 시각화 | D3.js + @visx | 커스터마이징 자유도, force-directed |
-| Diff 뷰 | diff2html 또는 커스텀 | side-by-side 렌더링 |
-| 차트 | Recharts 또는 @visx | React 네이티브 통합 |
-| 실시간 | SSE (Server-Sent Events) | WebSocket보다 단순, 단방향 |
+| 프론트엔드 프레임워크 | React 19 + Vite 7 + Tailwind 4 | 컴포넌트 재사용, 생태계 |
+| 그래프 시각화 | React Flow (@xyflow/react 12) + dagre | 선언적 API, 자동 레이아웃 |
+| 차트 | ECharts 6 (echarts-for-react) | 풍부한 게이지/차트, 한국어 지원 |
+| 아이콘 | Lucide React | 경량, React 네이티브 |
+| ORM | Drizzle ORM 0.45 | 타입 안전 SQLite 접근 |
 | MD 렌더링 | react-markdown + remark | 기존 파서 생태계 재사용 |
+| Diff 뷰 | diff2html | side-by-side 렌더링 |
+
+> **구현 상태**: Phase 2 완료 (6개 페이지). Phase 2.5 진행 중 — Settings 페이지, AI doc classification, file-level relation extraction, dagre auto-layout.
+
+#### Phase 2.5: Dashboard AI Operations (진행 중)
+
+- **Settings 페이지**: AI provider 상태 표시, Index 제어 (reindex/incremental), Knowledge Query 패널
+- **AI doc_classification**: 인덱싱 시 LLM으로 문서 유형(decision, spec, meeting, research) 자동 분류
+- **File-level AI relation extraction**: 코사인 유사도 대신 LLM이 파일 쌍의 관계를 직접 추론
+- **dagre auto-layout**: Knowledge Graph에 자동 레이아웃 적용 (force-directed 대체)
+- **aimux SDK 추출**: AI CLI multiplexer를 독립 패키지(`packages/aimux/`)로 분리
 
 ### Phase 3 (Month 5~6): Intelligence + Multi-agent
 

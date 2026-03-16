@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.3.0-alpha — Phase 2 + 2.5 (2026-03-16, in progress)
+
+React SPA Dashboard + AI Intelligence + aimux SDK extraction.
+
+### Phase 2: React SPA Dashboard (PR #5)
+- **Full React rewrite**: htmx completely removed, replaced with React 19 + Vite 7 + Tailwind 4
+- **Drizzle ORM migration**: SQLite access via Drizzle ORM (replaces raw better-sqlite3 in dashboard)
+- **Health Dashboard**: ECharts 6 gauges + StatCards + chain integrity badge + warning panel
+- **Knowledge Explorer**: FileNavigator + DocumentViewer (react-markdown) + SearchPanel (BM25)
+- **Knowledge Graph**: React Flow (@xyflow/react 12) + FileNode + relation edges (color-coded by type) + MiniMap
+- **Conflict Studio**: ConflictCard with severity badges + AI analysis + resolve workflow
+- **Audit Timeline**: Vertical timeline UI with type/actor filtering
+- New REST API endpoints: /api/files, /api/files/:id/chunks, /api/search, /api/graph
+
+### Phase 2.5: Dashboard AI Operations (PR #7, in progress)
+- **Settings page**: AI provider status, index control (reindex/incremental), knowledge query panel
+- **AI doc classification**: LLM auto-classifies document types during indexing
+- **File-level AI relation extraction**: LLM directly infers relations between files (replaces cosine similarity-based approach)
+- **dagre auto-layout**: Automatic graph layout for Knowledge Graph (replaces manual force-directed)
+- **Conflict detection fixes**: Handle empty/non-array LLM responses, lower similarity threshold (0.85 → 0.75)
+- **Dynamic provider resolution**: AI provider and curator resolved per-request (PR #7 fix)
+- New REST API endpoints: /api/providers, /api/index, /api/index/status, /api/knowledge-query
+- npm scripts: `index`, `index:claude`, `index:fast`, `reindex`, `reindex:claude`, `dev:client`
+
+### aimux SDK (PR #6)
+- Extracted AI CLI multiplexer as independent package (`packages/aimux/`)
+- AIProvider + EmbeddingProvider interfaces, CLI/Ollama/transformers.js providers
+- Router, Rate Limiter, JSONL Logger, extractJSON
+- Roadmap: Credential Scheduler, Model Mapping, OpenAI-compatible API server
+
+### Stats
+- 150 tests, 19 test files (unchanged — dashboard is integration-tested manually)
+- 6 Dashboard pages (was 3 htmx pages)
+- 21 React components
+- 7 PRs total (4 reviewed and merged, 1 in progress)
+
 ## 0.2.0 — MVP-1 (2026-03-15)
 
 AI Provider abstraction + Relation Engine + Audit Trail + Dashboard.
