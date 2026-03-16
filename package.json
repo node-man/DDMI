@@ -9,7 +9,7 @@
     "ddmi": "dist/cli/main.js"
   },
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && vite build --config vite.config.client.ts",
     "build:client": "vite build --config vite.config.client.ts",
     "build:all": "tsc && vite build --config vite.config.client.ts",
     "dev": "tsc && node dist/cli/main.js serve --dashboard-only --port 3001 --watch",
@@ -22,7 +22,7 @@
     "reindex:claude": "rm -rf .ddmi && tsc && node dist/cli/main.js init && node dist/cli/main.js index --provider claude",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit && tsc -p tsconfig.client.json --noEmit"
   },
   "keywords": [
     "mcp",

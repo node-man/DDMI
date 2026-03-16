@@ -282,6 +282,7 @@ export function getChunksByFileId(
     .select()
     .from(schema.chunks)
     .where(eq(schema.chunks.fileId, fileId))
+    .orderBy(sql`rowid ASC`)
     .all();
   return rows.map(drizzleRowToChunkRecord);
 }
