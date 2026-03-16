@@ -6,6 +6,7 @@
  */
 
 import { sqliteTable, text, integer, real } from "drizzle-orm/sqlite-core";
+import type { ScoringWeights } from "../types.js";
 
 // ─── Files ──────────────────────────────────────────────
 
@@ -50,7 +51,7 @@ export const feedbackLog = sqliteTable("feedback_log", {
   blocksUsed: text("blocks_used", { mode: "json" }).$type<string[]>(),
   blocksIrrelevant: text("blocks_irrelevant", { mode: "json" }).$type<string[]>(),
   missingContext: text("missing_context"),
-  scoringWeights: text("scoring_weights", { mode: "json" }).$type<Record<string, number>>(),
+  scoringWeights: text("scoring_weights", { mode: "json" }).$type<ScoringWeights>(),
 });
 
 // ─── Relations ──────────────────────────────────────────
