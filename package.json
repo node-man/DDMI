@@ -18,6 +18,8 @@
     "index": "tsc && node dist/cli/main.js index --provider ollama",
     "index:claude": "tsc && node dist/cli/main.js index --provider claude",
     "index:fast": "tsc && node dist/cli/main.js index",
+    "reindex": "rm -rf .ddmi && tsc && node dist/cli/main.js init && node dist/cli/main.js index --provider ollama",
+    "reindex:claude": "rm -rf .ddmi && tsc && node dist/cli/main.js init && node dist/cli/main.js index --provider claude",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "lint": "tsc --noEmit"
