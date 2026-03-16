@@ -1,12 +1,16 @@
 /**
- * SQLite Storage — better-sqlite3 래퍼
+ * SQLite Storage — Drizzle ORM 래퍼
  *
  * .ddmi/index.db에 메타데이터, 청크, 피드백을 저장한다.
- * MVP-0 테이블: files, chunks, feedback_log
  * WAL 모드 활성화로 동시 읽기 성능 확보.
+ *
+ * Drizzle ORM으로 CRUD 처리, FTS5 virtual table만 raw SQL 유지.
  */
 
 import Database from "better-sqlite3";
+import { drizzle, type BetterSQLite3Database } from "drizzle-orm/better-sqlite3";
+import { eq, and, desc, asc, count, sql, or, lt } from "drizzle-orm";
+import * as schema from "./schema.js";
 import type {
   FileRecord,
   ChunkRecord,
@@ -20,6 +24,10 @@ import type {
 } from "../types.js";
 
 // ─── Schema ──────────────────────────────────────────────
+// NOTE: 테이블 구조의 진실원은 schema.ts (Drizzle ORM 정의).
+// 이 SQL은 initDatabase() DDL용으로만 사용.
+// FTS5 virtual table은 Drizzle가 지원하지 않아 raw SQL 유지 필수.
+// 테이블 구조 변경 시 schema.ts와 반드시 동기화할 것.
 
 const SCHEMA_VERSION = 1;
 
@@ -138,6 +146,19 @@ CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
 );
 `;
 
+// ─── Drizzle instance cache ──────────────────────────────
+
+const drizzleCache = new WeakMap<Database.Database, BetterSQLite3Database<typeof schema>>();
+
+function getDrizzle(db: Database.Database): BetterSQLite3Database<typeof schema> {
+  let d = drizzleCache.get(db);
+  if (!d) {
+    d = drizzle(db, { schema });
+    drizzleCache.set(db, d);
+  }
+  return d;
+}
+
 // ─── Init ────────────────────────────────────────────────
 
 export function initDatabase(dbPath: string): Database.Database {
@@ -146,124 +167,144 @@ export function initDatabase(dbPath: string): Database.Database {
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA_SQL);
   db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  // Warm up the Drizzle instance
+  getDrizzle(db);
   return db;
 }
 
 // ─── Files ───────────────────────────────────────────────
 
-const UPSERT_FILE_SQL = `
-  INSERT INTO files (id, path, title, doc_type, frontmatter, checksum, total_tokens, completeness_score, created_at, updated_at, indexed_at)
-  VALUES (@id, @path, @title, @docType, @frontmatter, @checksum, @totalTokens, @completenessScore, @createdAt, @updatedAt, @indexedAt)
-  ON CONFLICT(id) DO UPDATE SET
-    title = @title, doc_type = @docType, frontmatter = @frontmatter,
-    checksum = @checksum, total_tokens = @totalTokens, completeness_score = @completenessScore,
-    updated_at = @updatedAt, indexed_at = @indexedAt
-`;
-
 export function upsertFile(db: Database.Database, file: FileRecord): void {
-  db.prepare(UPSERT_FILE_SQL).run({
-    id: file.id,
-    path: file.path,
-    title: file.title,
-    docType: file.docType,
-    frontmatter: JSON.stringify(file.frontmatter),
-    checksum: file.checksum,
-    totalTokens: file.totalTokens,
-    completenessScore: file.completenessScore,
-    createdAt: file.createdAt,
-    updatedAt: file.updatedAt,
-    indexedAt: file.indexedAt,
-  });
+  const d = getDrizzle(db);
+  d.insert(schema.files)
+    .values({
+      id: file.id,
+      path: file.path,
+      title: file.title,
+      docType: file.docType,
+      frontmatter: file.frontmatter,
+      checksum: file.checksum,
+      totalTokens: file.totalTokens,
+      completenessScore: file.completenessScore,
+      createdAt: file.createdAt,
+      updatedAt: file.updatedAt,
+      indexedAt: file.indexedAt,
+    })
+    .onConflictDoUpdate({
+      target: schema.files.id,
+      set: {
+        title: file.title,
+        docType: file.docType,
+        frontmatter: file.frontmatter,
+        checksum: file.checksum,
+        totalTokens: file.totalTokens,
+        completenessScore: file.completenessScore,
+        updatedAt: file.updatedAt,
+        indexedAt: file.indexedAt,
+      },
+    })
+    .run();
 }
 
 export function getFileByPath(
   db: Database.Database,
   path: string,
 ): FileRecord | null {
-  const row = db
-    .prepare("SELECT * FROM files WHERE path = ?")
-    .get(path) as Record<string, unknown> | undefined;
-  return row ? rowToFileRecord(row) : null;
+  const d = getDrizzle(db);
+  const row = d
+    .select()
+    .from(schema.files)
+    .where(eq(schema.files.path, path))
+    .get();
+  return row ? drizzleRowToFileRecord(row) : null;
 }
 
 export function getFileByChecksum(
   db: Database.Database,
   path: string,
 ): string | null {
-  const row = db
-    .prepare("SELECT checksum FROM files WHERE path = ?")
-    .get(path) as { checksum: string } | undefined;
+  const d = getDrizzle(db);
+  const row = d
+    .select({ checksum: schema.files.checksum })
+    .from(schema.files)
+    .where(eq(schema.files.path, path))
+    .get();
   return row?.checksum ?? null;
 }
 
 export function getAllFiles(db: Database.Database): FileRecord[] {
-  const rows = db
-    .prepare("SELECT * FROM files ORDER BY path")
-    .all() as Record<string, unknown>[];
-  return rows.map(rowToFileRecord);
+  const d = getDrizzle(db);
+  const rows = d
+    .select()
+    .from(schema.files)
+    .orderBy(asc(schema.files.path))
+    .all();
+  return rows.map(drizzleRowToFileRecord);
 }
 
 export function deleteFile(db: Database.Database, fileId: string): void {
-  db.prepare("DELETE FROM files WHERE id = ?").run(fileId);
+  const d = getDrizzle(db);
+  d.delete(schema.files).where(eq(schema.files.id, fileId)).run();
   // chunks cascade via ON DELETE CASCADE
 }
 
 // ─── Chunks ──────────────────────────────────────────────
 
-const INSERT_CHUNK_SQL = `
-  INSERT INTO chunks (id, file_id, section_path, content, token_count, heading_level, chunk_type, metadata, created_at)
-  VALUES (@id, @fileId, @sectionPath, @content, @tokenCount, @headingLevel, @chunkType, @metadata, @createdAt)
-`;
-
 export function insertChunks(
   db: Database.Database,
   chunks: ChunkRecord[],
 ): void {
-  const stmt = db.prepare(INSERT_CHUNK_SQL);
-  for (const chunk of chunks) {
-    stmt.run({
-      id: chunk.id,
-      fileId: chunk.fileId,
-      sectionPath: chunk.sectionPath,
-      content: chunk.content,
-      tokenCount: chunk.tokenCount,
-      headingLevel: chunk.headingLevel,
-      chunkType: chunk.chunkType,
-      metadata: JSON.stringify(chunk.metadata),
-      createdAt: chunk.createdAt,
-    });
-  }
+  if (chunks.length === 0) return;
+  const d = getDrizzle(db);
+  d.insert(schema.chunks)
+    .values(
+      chunks.map((chunk) => ({
+        id: chunk.id,
+        fileId: chunk.fileId,
+        sectionPath: chunk.sectionPath,
+        content: chunk.content,
+        tokenCount: chunk.tokenCount,
+        headingLevel: chunk.headingLevel,
+        chunkType: chunk.chunkType,
+        metadata: chunk.metadata,
+        createdAt: chunk.createdAt,
+      })),
+    )
+    .run();
 }
 
 export function getChunksByFileId(
   db: Database.Database,
   fileId: string,
 ): ChunkRecord[] {
-  const rows = db
-    .prepare("SELECT * FROM chunks WHERE file_id = ? ORDER BY rowid")
-    .all(fileId) as Record<string, unknown>[];
-  return rows.map(rowToChunkRecord);
+  const d = getDrizzle(db);
+  const rows = d
+    .select()
+    .from(schema.chunks)
+    .where(eq(schema.chunks.fileId, fileId))
+    .orderBy(sql`rowid ASC`)
+    .all();
+  return rows.map(drizzleRowToChunkRecord);
 }
 
 export function deleteChunksByFileId(
   db: Database.Database,
   fileId: string,
 ): void {
-  db.prepare("DELETE FROM chunks WHERE file_id = ?").run(fileId);
+  const d = getDrizzle(db);
+  d.delete(schema.chunks).where(eq(schema.chunks.fileId, fileId)).run();
 }
 
 export function getChunkCount(db: Database.Database): number {
-  const row = db
-    .prepare("SELECT COUNT(*) as count FROM chunks")
-    .get() as { count: number };
-  return row.count;
+  const d = getDrizzle(db);
+  const row = d.select({ count: count() }).from(schema.chunks).get();
+  return row?.count ?? 0;
 }
 
 export function getFileCount(db: Database.Database): number {
-  const row = db
-    .prepare("SELECT COUNT(*) as count FROM files")
-    .get() as { count: number };
-  return row.count;
+  const d = getDrizzle(db);
+  const row = d.select({ count: count() }).from(schema.files).get();
+  return row?.count ?? 0;
 }
 
 // ─── Feedback ────────────────────────────────────────────
@@ -301,24 +342,22 @@ export function saveFeedback(
     scoringWeights: meta.scoringWeights,
   };
 
-  db.prepare(
-    `INSERT INTO feedback_log
-     (id, feedback_token, timestamp, intent, task_type, outcome,
-      blocks_served, blocks_used, blocks_irrelevant, missing_context, scoring_weights)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    record.id,
-    token,
-    timestamp,
-    meta.intent,
-    meta.taskType,
-    input.outcome,
-    JSON.stringify(meta.blocksServed),
-    JSON.stringify(input.blocksUsed ?? []),
-    JSON.stringify(input.blocksIrrelevant ?? []),
-    input.missingContext ?? null,
-    JSON.stringify(meta.scoringWeights),
-  );
+  const d = getDrizzle(db);
+  d.insert(schema.feedbackLog)
+    .values({
+      id: record.id,
+      feedbackToken: token,
+      timestamp,
+      intent: meta.intent,
+      taskType: meta.taskType,
+      outcome: input.outcome,
+      blocksServed: meta.blocksServed,
+      blocksUsed: input.blocksUsed ?? [],
+      blocksIrrelevant: input.blocksIrrelevant ?? [],
+      missingContext: input.missingContext ?? null,
+      scoringWeights: meta.scoringWeights,
+    })
+    .run();
 
   return record;
 }
@@ -326,27 +365,77 @@ export function saveFeedback(
 // ─── Relations ──────────────────────────────────────────
 
 export function insertRelation(db: Database.Database, r: Relation): void {
-  db.prepare(
-    `INSERT OR REPLACE INTO relations (id, source_chunk_id, target_chunk_id, relation_type, confidence, extraction_method, metadata, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(r.id, r.sourceChunkId, r.targetChunkId, r.relationType, r.confidence, r.extractionMethod, JSON.stringify(r.metadata), r.createdAt);
+  const d = getDrizzle(db);
+  d.insert(schema.relations)
+    .values({
+      id: r.id,
+      sourceChunkId: r.sourceChunkId,
+      targetChunkId: r.targetChunkId,
+      relationType: r.relationType,
+      confidence: r.confidence,
+      extractionMethod: r.extractionMethod,
+      metadata: r.metadata,
+      createdAt: r.createdAt,
+    })
+    .onConflictDoUpdate({
+      target: schema.relations.id,
+      set: {
+        sourceChunkId: r.sourceChunkId,
+        targetChunkId: r.targetChunkId,
+        relationType: r.relationType,
+        confidence: r.confidence,
+        extractionMethod: r.extractionMethod,
+        metadata: r.metadata,
+        createdAt: r.createdAt,
+      },
+    })
+    .run();
 }
 
 export function insertRelations(db: Database.Database, relations: Relation[]): void {
-  const stmt = db.prepare(
-    `INSERT OR REPLACE INTO relations (id, source_chunk_id, target_chunk_id, relation_type, confidence, extraction_method, metadata, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-  );
+  if (relations.length === 0) return;
+  const d = getDrizzle(db);
   for (const r of relations) {
-    stmt.run(r.id, r.sourceChunkId, r.targetChunkId, r.relationType, r.confidence, r.extractionMethod, JSON.stringify(r.metadata), r.createdAt);
+    d.insert(schema.relations)
+      .values({
+        id: r.id,
+        sourceChunkId: r.sourceChunkId,
+        targetChunkId: r.targetChunkId,
+        relationType: r.relationType,
+        confidence: r.confidence,
+        extractionMethod: r.extractionMethod,
+        metadata: r.metadata,
+        createdAt: r.createdAt,
+      })
+      .onConflictDoUpdate({
+        target: schema.relations.id,
+        set: {
+          sourceChunkId: r.sourceChunkId,
+          targetChunkId: r.targetChunkId,
+          relationType: r.relationType,
+          confidence: r.confidence,
+          extractionMethod: r.extractionMethod,
+          metadata: r.metadata,
+          createdAt: r.createdAt,
+        },
+      })
+      .run();
   }
 }
 
 export function getRelationsForChunk(db: Database.Database, chunkId: string): Relation[] {
-  const rows = db.prepare(
-    `SELECT * FROM relations WHERE source_chunk_id = ? OR target_chunk_id = ?`,
-  ).all(chunkId, chunkId) as Array<Record<string, unknown>>;
-  return rows.map(rowToRelation);
+  const d = getDrizzle(db);
+  const rows = d
+    .select()
+    .from(schema.relations)
+    .where(
+      or(
+        eq(schema.relations.sourceChunkId, chunkId),
+        eq(schema.relations.targetChunkId, chunkId),
+      ),
+    )
+    .all();
+  return rows.map(drizzleRowToRelation);
 }
 
 export function deleteRelationsByFileChunks(db: Database.Database, chunkIds: string[]): void {
@@ -355,25 +444,55 @@ export function deleteRelationsByFileChunks(db: Database.Database, chunkIds: str
   db.prepare(`DELETE FROM relations WHERE source_chunk_id IN (${placeholders}) OR target_chunk_id IN (${placeholders})`).run(...chunkIds, ...chunkIds);
 }
 
+export function getAllRelations(db: Database.Database): Relation[] {
+  const d = getDrizzle(db);
+  const rows = d.select().from(schema.relations).all();
+  return rows.map(drizzleRowToRelation);
+}
+
 export function getRelationCount(db: Database.Database): number {
-  const row = db.prepare("SELECT COUNT(*) as count FROM relations").get() as { count: number };
-  return row.count;
+  const d = getDrizzle(db);
+  const row = d.select({ count: count() }).from(schema.relations).get();
+  return row?.count ?? 0;
 }
 
 // ─── Conflicts ──────────────────────────────────────────
 
 export function insertConflict(db: Database.Database, c: Conflict): void {
-  db.prepare(
-    `INSERT OR REPLACE INTO conflicts (id, chunk_a_id, chunk_b_id, severity, description, status, detected_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-  ).run(c.id, c.chunkAId, c.chunkBId, c.severity, c.description, c.status, c.detectedAt);
+  const d = getDrizzle(db);
+  d.insert(schema.conflicts)
+    .values({
+      id: c.id,
+      chunkAId: c.chunkAId,
+      chunkBId: c.chunkBId,
+      severity: c.severity,
+      description: c.description,
+      status: c.status,
+      detectedAt: c.detectedAt,
+    })
+    .onConflictDoUpdate({
+      target: schema.conflicts.id,
+      set: {
+        chunkAId: c.chunkAId,
+        chunkBId: c.chunkBId,
+        severity: c.severity,
+        description: c.description,
+        status: c.status,
+        detectedAt: c.detectedAt,
+      },
+    })
+    .run();
 }
 
 export function getOpenConflicts(db: Database.Database): Conflict[] {
-  const rows = db.prepare(
-    `SELECT * FROM conflicts WHERE status = 'open' ORDER BY detected_at DESC`,
-  ).all() as Array<Record<string, unknown>>;
-  return rows.map(rowToConflict);
+  const d = getDrizzle(db);
+  const rows = d
+    .select()
+    .from(schema.conflicts)
+    .where(eq(schema.conflicts.status, "open"))
+    .orderBy(desc(schema.conflicts.detectedAt))
+    .all();
+  return rows.map(drizzleRowToConflict);
 }
 
 export function resolveConflict(
@@ -382,104 +501,93 @@ export function resolveConflict(
   resolvedBy: string,
   note: string,
 ): boolean {
-  const result = db.prepare(
-    `UPDATE conflicts SET status = 'resolved', resolved_by = ?, resolved_at = ?, resolution_note = ? WHERE id = ? AND status = 'open'`,
-  ).run(resolvedBy, new Date().toISOString(), note, conflictId);
+  const d = getDrizzle(db);
+  const result = d
+    .update(schema.conflicts)
+    .set({
+      status: "resolved",
+      resolvedBy,
+      resolvedAt: new Date().toISOString(),
+      resolutionNote: note,
+    })
+    .where(
+      and(
+        eq(schema.conflicts.id, conflictId),
+        eq(schema.conflicts.status, "open"),
+      ),
+    )
+    .run();
   return result.changes > 0;
 }
 
 export function getConflictCount(db: Database.Database): number {
-  const row = db.prepare("SELECT COUNT(*) as count FROM conflicts WHERE status = 'open'").get() as { count: number };
-  return row.count;
-}
-
-function rowToRelation(row: Record<string, unknown>): Relation {
-  return {
-    id: row.id as string,
-    sourceChunkId: row.source_chunk_id as string,
-    targetChunkId: row.target_chunk_id as string,
-    relationType: row.relation_type as Relation["relationType"],
-    confidence: row.confidence as number,
-    extractionMethod: row.extraction_method as Relation["extractionMethod"],
-    metadata: parseJsonField(row.metadata),
-    createdAt: row.created_at as string,
-  };
-}
-
-function rowToConflict(row: Record<string, unknown>): Conflict {
-  return {
-    id: row.id as string,
-    chunkAId: row.chunk_a_id as string,
-    chunkBId: row.chunk_b_id as string,
-    severity: row.severity as Conflict["severity"],
-    description: (row.description as string) ?? "",
-    status: row.status as Conflict["status"],
-    resolvedBy: row.resolved_by as string | undefined,
-    resolvedAt: row.resolved_at as string | undefined,
-    resolutionNote: row.resolution_note as string | undefined,
-    detectedAt: row.detected_at as string,
-  };
+  const d = getDrizzle(db);
+  const row = d
+    .select({ count: count() })
+    .from(schema.conflicts)
+    .where(eq(schema.conflicts.status, "open"))
+    .get();
+  return row?.count ?? 0;
 }
 
 // ─── Audit Log ──────────────────────────────────────────
 
 export function insertAuditEvent(db: Database.Database, e: AuditEvent): void {
-  db.prepare(
-    `INSERT INTO audit_log (id, event_type, timestamp, actor, target_file, target_chunk_id, details, rationale, based_on, previous_hash, hash)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  ).run(
-    e.id, e.eventType, e.timestamp, e.actor,
-    e.targetFile ?? null, e.targetChunkId ?? null,
-    JSON.stringify(e.details), e.rationale ?? null,
-    e.basedOn ? JSON.stringify(e.basedOn) : null,
-    e.previousHash, e.hash,
-  );
+  const d = getDrizzle(db);
+  d.insert(schema.auditLog)
+    .values({
+      id: e.id,
+      eventType: e.eventType,
+      timestamp: e.timestamp,
+      actor: e.actor,
+      targetFile: e.targetFile ?? null,
+      targetChunkId: e.targetChunkId ?? null,
+      details: e.details,
+      rationale: e.rationale ?? null,
+      basedOn: e.basedOn ?? null,
+      previousHash: e.previousHash,
+      hash: e.hash,
+    })
+    .run();
 }
 
 export function getAuditEvents(db: Database.Database, filter?: AuditFilter): AuditEvent[] {
-  let sql = "SELECT * FROM audit_log WHERE 1=1";
+  // Dynamic WHERE + optional LIMIT is awkward with Drizzle's builder,
+  // so we keep raw SQL for this one query which has variable conditions.
+  let sqlStr = "SELECT * FROM audit_log WHERE 1=1";
   const params: unknown[] = [];
 
-  if (filter?.eventType) { sql += " AND event_type = ?"; params.push(filter.eventType); }
-  if (filter?.targetFile) { sql += " AND target_file = ?"; params.push(filter.targetFile); }
-  if (filter?.after) { sql += " AND timestamp > ?"; params.push(filter.after); }
-  if (filter?.before) { sql += " AND timestamp < ?"; params.push(filter.before); }
+  if (filter?.eventType) { sqlStr += " AND event_type = ?"; params.push(filter.eventType); }
+  if (filter?.targetFile) { sqlStr += " AND target_file = ?"; params.push(filter.targetFile); }
+  if (filter?.after) { sqlStr += " AND timestamp > ?"; params.push(filter.after); }
+  if (filter?.before) { sqlStr += " AND timestamp < ?"; params.push(filter.before); }
 
-  sql += " ORDER BY timestamp DESC";
-  if (filter?.limit) { sql += " LIMIT ?"; params.push(filter.limit); }
+  sqlStr += " ORDER BY timestamp DESC";
+  if (filter?.limit) { sqlStr += " LIMIT ?"; params.push(filter.limit); }
 
-  const rows = db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
-  return rows.map(rowToAuditEvent);
+  const rows = db.prepare(sqlStr).all(...params) as Array<Record<string, unknown>>;
+  return rows.map(rawRowToAuditEvent);
 }
 
 export function getLatestAuditHash(db: Database.Database): string {
-  const row = db.prepare(
-    "SELECT hash FROM audit_log ORDER BY rowid DESC LIMIT 1",
-  ).get() as { hash: string } | undefined;
+  const d = getDrizzle(db);
+  const row = d
+    .select({ hash: schema.auditLog.hash })
+    .from(schema.auditLog)
+    .orderBy(sql`rowid DESC`)
+    .limit(1)
+    .get();
   return row?.hash ?? "genesis";
 }
 
 export function getAllAuditEvents(db: Database.Database): AuditEvent[] {
-  const rows = db.prepare(
-    "SELECT * FROM audit_log ORDER BY rowid ASC",
-  ).all() as Array<Record<string, unknown>>;
-  return rows.map(rowToAuditEvent);
-}
-
-function rowToAuditEvent(row: Record<string, unknown>): AuditEvent {
-  return {
-    id: row.id as string,
-    eventType: row.event_type as AuditEvent["eventType"],
-    timestamp: row.timestamp as string,
-    actor: (row.actor as string) ?? "unknown",
-    targetFile: row.target_file as string | undefined,
-    targetChunkId: row.target_chunk_id as string | undefined,
-    details: parseJsonField(row.details),
-    rationale: row.rationale as string | undefined,
-    basedOn: row.based_on ? (JSON.parse(row.based_on as string) as string[]) : undefined,
-    previousHash: row.previous_hash as string,
-    hash: row.hash as string,
-  };
+  const d = getDrizzle(db);
+  const rows = d
+    .select()
+    .from(schema.auditLog)
+    .orderBy(sql`rowid ASC`)
+    .all();
+  return rows.map(drizzleRowToAuditEvent);
 }
 
 // ─── AI Task Queue ──────────────────────────────────────
@@ -499,10 +607,17 @@ export interface QueuedTask {
 }
 
 export function enqueueTask(db: Database.Database, task: Omit<QueuedTask, "status" | "createdAt">): void {
-  db.prepare(
-    `INSERT INTO ai_task_queue (id, task_type, priority, status, payload, created_at)
-     VALUES (?, ?, ?, 'pending', ?, ?)`,
-  ).run(task.id, task.taskType, task.priority, JSON.stringify(task.payload), new Date().toISOString());
+  const d = getDrizzle(db);
+  d.insert(schema.aiTaskQueue)
+    .values({
+      id: task.id,
+      taskType: task.taskType,
+      priority: task.priority,
+      status: "pending",
+      payload: task.payload,
+      createdAt: new Date().toISOString(),
+    })
+    .run();
 }
 
 export function dequeueTasks(
@@ -511,6 +626,7 @@ export function dequeueTasks(
   workerId?: string,
   taskType?: string,
 ): QueuedTask[] {
+  // Atomic SELECT+UPDATE with RETURNING — keep raw SQL for complex subquery
   const where = taskType ? "AND task_type = ?" : "";
   const params: unknown[] = [batchSize];
   if (taskType) params.push(taskType);
@@ -518,7 +634,6 @@ export function dequeueTasks(
   const now = new Date().toISOString();
   const wid = workerId ?? "default";
 
-  // 원자적: SELECT + UPDATE를 하나의 문으로 — 여러 worker가 동시에 폴링해도 중복 없음
   const rows = db.prepare(
     `UPDATE ai_task_queue SET status = 'running', worker_id = '${wid}', started_at = ?
      WHERE id IN (
@@ -530,53 +645,65 @@ export function dequeueTasks(
      RETURNING *`,
   ).all(now, ...params) as Array<Record<string, unknown>>;
 
-  return rows.map(rowToQueuedTask);
+  return rows.map(rawRowToQueuedTask);
 }
 
 export function completeTask(db: Database.Database, taskId: string, result: Record<string, unknown>): void {
-  db.prepare(
-    `UPDATE ai_task_queue SET status = 'completed', result = ?, completed_at = ? WHERE id = ?`,
-  ).run(JSON.stringify(result), new Date().toISOString(), taskId);
+  const d = getDrizzle(db);
+  d.update(schema.aiTaskQueue)
+    .set({
+      status: "completed",
+      result,
+      completedAt: new Date().toISOString(),
+    })
+    .where(eq(schema.aiTaskQueue.id, taskId))
+    .run();
 }
 
 export function failTask(db: Database.Database, taskId: string, error: string): void {
-  db.prepare(
-    `UPDATE ai_task_queue SET status = 'failed', error = ?, completed_at = ? WHERE id = ?`,
-  ).run(error, new Date().toISOString(), taskId);
+  const d = getDrizzle(db);
+  d.update(schema.aiTaskQueue)
+    .set({
+      status: "failed",
+      error,
+      completedAt: new Date().toISOString(),
+    })
+    .where(eq(schema.aiTaskQueue.id, taskId))
+    .run();
 }
 
 export function getPendingTaskCount(db: Database.Database): number {
-  const row = db.prepare("SELECT COUNT(*) as count FROM ai_task_queue WHERE status = 'pending'").get() as { count: number };
-  return row.count;
+  const d = getDrizzle(db);
+  const row = d
+    .select({ count: count() })
+    .from(schema.aiTaskQueue)
+    .where(eq(schema.aiTaskQueue.status, "pending"))
+    .get();
+  return row?.count ?? 0;
 }
 
 /** 2분 이상 running 상태인 태스크를 pending으로 되돌림 (worker 크래시/재시작 복구) */
 export function reclaimStaleTasks(db: Database.Database, staleMinutes: number = 2): number {
   const cutoff = new Date(Date.now() - staleMinutes * 60 * 1000).toISOString();
-  const result = db.prepare(
-    `UPDATE ai_task_queue SET status = 'pending', worker_id = NULL, started_at = NULL
-     WHERE status = 'running' AND started_at < ?`,
-  ).run(cutoff);
+  const d = getDrizzle(db);
+  const result = d
+    .update(schema.aiTaskQueue)
+    .set({
+      status: "pending",
+      workerId: null,
+      startedAt: null,
+    })
+    .where(
+      and(
+        eq(schema.aiTaskQueue.status, "running"),
+        lt(schema.aiTaskQueue.startedAt, cutoff),
+      ),
+    )
+    .run();
   return result.changes;
 }
 
-function rowToQueuedTask(row: Record<string, unknown>): QueuedTask {
-  return {
-    id: row.id as string,
-    taskType: row.task_type as string,
-    priority: row.priority as QueuedTask["priority"],
-    status: row.status as QueuedTask["status"],
-    workerId: row.worker_id as string | undefined,
-    payload: parseJsonField(row.payload),
-    result: row.result ? parseJsonField(row.result) : undefined,
-    error: row.error as string | undefined,
-    createdAt: row.created_at as string,
-    startedAt: row.started_at as string | undefined,
-    completedAt: row.completed_at as string | undefined,
-  };
-}
-
-// ─── FTS5 (BM25 search for Level 0) ─────────────────────
+// ─── FTS5 (BM25 search for Level 0) — raw SQL ───────────
 
 export interface FTSRecord {
   chunkId: string;
@@ -653,35 +780,112 @@ export function withinTransaction<T>(
   return db.transaction(fn)();
 }
 
-// ─── Row Mapping ─────────────────────────────────────────
+// ─── Row Mapping (Drizzle select results → domain types) ─
 
-function rowToFileRecord(row: Record<string, unknown>): FileRecord {
+function drizzleRowToFileRecord(row: typeof schema.files.$inferSelect): FileRecord {
   return {
-    id: row.id as string,
-    path: row.path as string,
-    title: (row.title as string) ?? null,
-    docType: (row.doc_type as string) ?? "unknown",
-    frontmatter: parseJsonField(row.frontmatter),
-    checksum: (row.checksum as string) ?? "",
-    totalTokens: (row.total_tokens as number) ?? 0,
-    completenessScore: (row.completeness_score as number) ?? 0,
-    createdAt: row.created_at as string,
-    updatedAt: row.updated_at as string,
-    indexedAt: row.indexed_at as string,
+    id: row.id,
+    path: row.path,
+    title: row.title ?? null,
+    docType: row.docType ?? "unknown",
+    frontmatter: (row.frontmatter as Record<string, unknown>) ?? {},
+    checksum: row.checksum ?? "",
+    totalTokens: row.totalTokens ?? 0,
+    completenessScore: row.completenessScore ?? 0,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+    indexedAt: row.indexedAt,
   };
 }
 
-function rowToChunkRecord(row: Record<string, unknown>): ChunkRecord {
+function drizzleRowToChunkRecord(row: typeof schema.chunks.$inferSelect): ChunkRecord {
+  return {
+    id: row.id,
+    fileId: row.fileId,
+    sectionPath: row.sectionPath ?? "",
+    content: row.content,
+    tokenCount: row.tokenCount ?? 0,
+    headingLevel: row.headingLevel ?? 0,
+    chunkType: (row.chunkType as ChunkRecord["chunkType"]) ?? "prose",
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: row.createdAt,
+  };
+}
+
+function drizzleRowToRelation(row: typeof schema.relations.$inferSelect): Relation {
+  return {
+    id: row.id,
+    sourceChunkId: row.sourceChunkId,
+    targetChunkId: row.targetChunkId,
+    relationType: row.relationType as Relation["relationType"],
+    confidence: row.confidence ?? 1.0,
+    extractionMethod: row.extractionMethod as Relation["extractionMethod"],
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: row.createdAt,
+  };
+}
+
+function drizzleRowToConflict(row: typeof schema.conflicts.$inferSelect): Conflict {
+  return {
+    id: row.id,
+    chunkAId: row.chunkAId,
+    chunkBId: row.chunkBId,
+    severity: row.severity as Conflict["severity"],
+    description: row.description ?? "",
+    status: row.status as Conflict["status"],
+    resolvedBy: row.resolvedBy ?? undefined,
+    resolvedAt: row.resolvedAt ?? undefined,
+    resolutionNote: row.resolutionNote ?? undefined,
+    detectedAt: row.detectedAt,
+  };
+}
+
+function drizzleRowToAuditEvent(row: typeof schema.auditLog.$inferSelect): AuditEvent {
+  return {
+    id: row.id,
+    eventType: row.eventType as AuditEvent["eventType"],
+    timestamp: row.timestamp,
+    actor: row.actor ?? "unknown",
+    targetFile: row.targetFile ?? undefined,
+    targetChunkId: row.targetChunkId ?? undefined,
+    details: (row.details as Record<string, unknown>) ?? {},
+    rationale: row.rationale ?? undefined,
+    basedOn: row.basedOn as string[] | undefined ?? undefined,
+    previousHash: row.previousHash ?? "",
+    hash: row.hash,
+  };
+}
+
+// Raw SQL row mapping — used by getAuditEvents (dynamic filter) and dequeueTasks
+function rawRowToAuditEvent(row: Record<string, unknown>): AuditEvent {
   return {
     id: row.id as string,
-    fileId: row.file_id as string,
-    sectionPath: (row.section_path as string) ?? "",
-    content: row.content as string,
-    tokenCount: (row.token_count as number) ?? 0,
-    headingLevel: (row.heading_level as number) ?? 0,
-    chunkType: (row.chunk_type as string as ChunkRecord["chunkType"]) ?? "prose",
-    metadata: parseJsonField(row.metadata),
+    eventType: row.event_type as AuditEvent["eventType"],
+    timestamp: row.timestamp as string,
+    actor: (row.actor as string) ?? "unknown",
+    targetFile: row.target_file as string | undefined,
+    targetChunkId: row.target_chunk_id as string | undefined,
+    details: parseJsonField(row.details),
+    rationale: row.rationale as string | undefined,
+    basedOn: row.based_on ? (JSON.parse(row.based_on as string) as string[]) : undefined,
+    previousHash: row.previous_hash as string,
+    hash: row.hash as string,
+  };
+}
+
+function rawRowToQueuedTask(row: Record<string, unknown>): QueuedTask {
+  return {
+    id: row.id as string,
+    taskType: row.task_type as string,
+    priority: row.priority as QueuedTask["priority"],
+    status: row.status as QueuedTask["status"],
+    workerId: row.worker_id as string | undefined,
+    payload: parseJsonField(row.payload),
+    result: row.result ? parseJsonField(row.result) : undefined,
+    error: row.error as string | undefined,
     createdAt: row.created_at as string,
+    startedAt: row.started_at as string | undefined,
+    completedAt: row.completed_at as string | undefined,
   };
 }
 

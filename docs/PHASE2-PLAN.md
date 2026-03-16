@@ -98,6 +98,25 @@ src/client/
 
 ## 2. 주차별 분해
 
+### Sprint 0: Drizzle ORM 마이그레이션 (Phase 2 시작 전)
+
+**목표:** raw SQL 문자열 → Drizzle ORM 타입 안전 쿼리로 전환.
+
+**이유:** Phase 2에서 API 12개가 추가되는데, 현재 sqlite.ts의 raw SQL (30+ 쿼리, 7 테이블)은:
+- 컬럼명 변경 시 런타임에서야 발견되는 에러
+- `?` 순서와 파라미터 순서 불일치 시 silent data corruption
+- TypeScript가 SQL 문자열 내부 오류를 못 잡음
+
+**작업:**
+- [x] `drizzle-orm` + `drizzle-kit` 설치 (0.45.1 + 0.31.9)
+- [x] `src/storage/schema.ts` — 7개 테이블 Drizzle 스키마 정의
+- [x] `src/storage/sqlite.ts` — 30+ CRUD 함수 Drizzle 쿼리로 전환 완료
+- [x] FTS5 + dequeueTasks + getAuditEvents + deleteRelationsByFileChunks는 raw SQL 유지
+- [x] 150 tests 전부 통과
+- [x] WeakMap 캐시로 Drizzle 인스턴스 관리, 함수 시그니처 0 변경
+
+**검증:** `npx vitest run` 전부 통과 + `npx tsc` 0 errors
+
 ### Week 1: React + Vite 셋업 + 프로젝트 골격
 
 **목표:** 개발 환경 완성. 빌드 → 서빙까지 end-to-end 작동.
@@ -473,3 +492,84 @@ CREATE TABLE IF NOT EXISTS health_snapshots (
 | Hono API 유지 + Vite dev server 프록시 | Section 1: 개발/프로덕션 아키텍처 다이어그램 |
 | Health Dashboard 가장 먼저 | Week 2에 배치 (가장 먼저 완성되는 시각화 컴포넌트) |
 | Knowledge Graph를 중간에 배치 | Week 4~5에 배치 (마지막이 아닌 중간, Explorer 다음) |
+
+---
+
+## Phase 2.5 — Dashboard AI Operations (웹 기반 AI 제어)
+
+> CLI 없이 Dashboard에서 모든 AI 기능을 제어한다. AI가 필요한 모든 기능에 웹 인터페이스를 제공.
+
+### 현재 문제
+
+AI를 사용하는 기능이 5개이지만, 전부 CLI에서만 접근 가능:
+
+| 기능 | AI 사용 | 현재 | Phase 2.5 |
+|------|---------|------|-----------|
+| 충돌 감지 | 유사도 쌍 → LLM 분석 | `ddmi index --provider` | Settings에서 버튼 |
+| Knowledge Query | 검색 → LLM 요약 | MCP tool만 | Dashboard에서 질의 |
+| Worker 큐 처리 | 큐 태스크 → LLM | `ddmi worker --provider` | Settings에서 시작/중지 |
+| 충돌 AI 분석 | 충돌 → 대안 생성 | 미구현 | Conflict 카드에서 분석 버튼 |
+| 영향 분석 | 변경 → 영향 평가 | 미구현 | Conflict 해결 시 자동 |
+
+### 1. Settings 페이지
+
+**Provider 관리:**
+- 사용 가능한 provider 목록 (healthCheck 결과)
+- provider별 모델 선택 (ollama: qwen3.5:9b/27b, claude, codex, gemini)
+- 연결 상태 표시 (● Connected / ○ Disconnected)
+- 모델 변경 → config.toml 자동 업데이트
+
+**인덱싱 제어:**
+- [Index] — 증분 인덱싱 (LLM 없이)
+- [Index + AI] — 인덱싱 + 선택된 provider로 충돌 분석
+- [Reindex] — 전체 재인덱싱 (init + index + AI)
+- 진행률 표시 (실시간 폴링)
+- 마지막 인덱싱 시간 + 결과 요약
+
+**Worker 제어:**
+- 큐 현황 (pending / running / completed / failed)
+- [Start Worker] / [Stop Worker] 버튼
+- 선택된 provider로 worker 시작
+
+### 2. Knowledge Query 패널 (새 페이지 또는 Explorer 통합)
+
+- 웹에서 자연어 질의 입력
+- 선택된 provider/모델로 LLM 호출
+- 답변 + 출처 (context blocks) 표시
+- 대화 이력 (세션 내)
+
+### 3. Conflict AI 분석 (Conflict Studio 확장)
+
+- 충돌 카드에 **"AI 분석"** 버튼 추가
+- 클릭 → 선택된 provider로 두 청크 분석
+- 결과: 충돌 원인 설명 + 해결 대안 제시
+- 해결 시 영향 분석: "이 결정을 바꾸면 영향받는 문서 N개"
+
+### 필요한 API
+
+| Method | Path | 기능 |
+|--------|------|------|
+| GET | `/api/providers` | provider 목록 + 모델 + healthCheck 상태 |
+| POST | `/api/index` | 인덱싱 시작 `{provider?, incremental?}` |
+| POST | `/api/reindex` | 재인덱싱 (rm .ddmi + init + index) |
+| GET | `/api/index/status` | 진행 상태 `{status, progress, total, processed}` |
+| POST | `/api/knowledge-query` | 웹 knowledge_query `{question}` |
+| POST | `/api/conflicts/:id/analyze` | AI 충돌 분석 `{provider?}` |
+| POST | `/api/worker/start` | Worker 시작 `{provider}` |
+| POST | `/api/worker/stop` | Worker 중지 |
+| GET | `/api/worker/status` | Worker 상태 + 큐 현황 |
+
+### 컴포넌트
+
+| 컴포넌트 | 역할 |
+|----------|------|
+| `SettingsPage.tsx` | 전체 설정 페이지 |
+| `ProviderSelector.tsx` | provider + 모델 드롭다운 |
+| `IndexControl.tsx` | 인덱싱 버튼 + 진행률 바 |
+| `WorkerControl.tsx` | Worker 시작/중지 + 큐 상태 |
+| `KnowledgeQueryPanel.tsx` | 질의 입력 + 답변 + 출처 |
+| `ConflictAnalysis.tsx` | AI 분석 결과 + 대안 제시 |
+
+### Sidebar 업데이트
+- 6번째 항목: Settings (Lucide: Settings 아이콘)
+- Knowledge Query는 Explorer에 탭으로 통합하거나 별도 페이지
