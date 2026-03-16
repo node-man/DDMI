@@ -60,8 +60,24 @@ export async function runServe(
   console.error(`[ddmi] Level ${level} | Providers: ${providers.length > 0 ? providers.join(", ") : "none"}`);
 
   startDashboard(db, dbPath, options.port ?? 3000, {
-    curatorDeps,
-    aiProvider,
+    getCuratorDeps: async () => {
+      // 요청마다 최신 상태 — 인덱싱 후에도 동작
+      try {
+        const { initVectorStore } = await import("../storage/lance.js");
+        const lance = await initVectorStore(join(ddmiDir, "vectors.lance"));
+        const cfg = loadConfig(projectRoot);
+        const rtr = await createRouter(cfg);
+        return { embedder: rtr.getEmbeddingProvider(), lance, dbPath, weights: cfg.curator.weights };
+      } catch { return null; }
+    },
+    getAIProvider: async () => {
+      // 요청마다 최신 provider 감지
+      try {
+        const cfg = loadConfig(projectRoot);
+        const rtr = await createRouter(cfg);
+        return rtr.getProvider();
+      } catch { return null; }
+    },
     projectRoot,
   });
 

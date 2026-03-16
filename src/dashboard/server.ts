@@ -47,8 +47,10 @@ const indexState: IndexState = {
 // ─── Dashboard Options ─────────────────────────────────────
 
 export interface DashboardOptions {
-  curatorDeps?: CuratorDeps | null;
-  aiProvider?: AIProvider | null;
+  /** 요청 시점에 최신 curatorDeps를 반환하는 factory */
+  getCuratorDeps: () => Promise<CuratorDeps | null>;
+  /** 요청 시점에 최신 aiProvider를 반환하는 factory */
+  getAIProvider: () => Promise<AIProvider | null>;
   projectRoot?: string;
 }
 
@@ -56,9 +58,9 @@ export function startDashboard(
   db: Database.Database,
   dbPath: string,
   port: number = 3000,
-  options: DashboardOptions = {},
+  options: DashboardOptions,
 ): void {
-  const { curatorDeps = null, aiProvider = null, projectRoot } = options;
+  const { getCuratorDeps, getAIProvider, projectRoot } = options;
   const app = new Hono();
 
   // ─── API: Health ───────────────────────────────────────
@@ -108,6 +110,7 @@ export function startDashboard(
   app.post("/api/conflicts/:id/analyze", async (c) => {
     const id = c.req.param("id");
 
+    const aiProvider = await getAIProvider();
     if (!aiProvider) {
       return c.json({ error: "No AI provider available. Install claude CLI, Ollama, or configure an API key." }, 400);
     }
@@ -286,6 +289,9 @@ Provide a concise analysis in 3 sections:
     if (!question || typeof question !== "string") {
       return c.json({ error: "Missing 'question' field" }, 400);
     }
+
+    const curatorDeps = await getCuratorDeps();
+    const aiProvider = await getAIProvider();
 
     if (!curatorDeps) {
       return c.json({
