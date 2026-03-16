@@ -2,8 +2,10 @@ import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { Sidebar } from "./components/layout/Sidebar";
 import { HealthDashboard } from "./components/health/HealthDashboard";
 import { ExplorerPage } from "./components/explorer/ExplorerPage";
+import { GraphPage } from "./components/graph/GraphPage";
+import { ConflictsPage } from "./components/conflicts/ConflictsPage";
 
-// Phase 2 Week 3-6에서 구현 예정
+// Phase 2 Week 6에서 구현 예정
 function PlaceholderPage({ name }: { name: string }) {
   return (
     <div className="p-6">
@@ -22,8 +24,8 @@ function AppLayout() {
         <Routes>
           <Route path="/" element={<HealthDashboard />} />
           <Route path="/explorer" element={<ExplorerPage />} />
-          <Route path="/graph" element={<PlaceholderPage name="Knowledge Graph" />} />
-          <Route path="/conflicts" element={<PlaceholderPage name="Conflict Studio" />} />
+          <Route path="/graph" element={<GraphPage />} />
+          <Route path="/conflicts" element={<ConflictsPage />} />
           <Route path="/audit" element={<PlaceholderPage name="Audit Timeline" />} />
         </Routes>
       </main>

@@ -20,6 +20,7 @@ import {
   getAuditEvents,
   getAllFiles,
   getChunksByFileId,
+  getAllRelations,
   searchBM25,
 } from "../storage/sqlite.js";
 import { createAuditTrail } from "../core/audit.js";
@@ -101,6 +102,49 @@ export function startDashboard(db: Database.Database, dbPath: string, port: numb
     if (!q) return c.json([]);
     const results = searchBM25(db, q, 20);
     return c.json(results);
+  });
+
+  // ─── API: Graph (Knowledge Graph) ─────────────────────
+  app.get("/api/graph", (c) => {
+    const files = getAllFiles(db);
+    const nodes = files.map((f) => ({
+      id: f.id,
+      label: f.path,
+      docType: f.docType,
+      totalTokens: f.totalTokens,
+    }));
+
+    // chunk → file 매핑
+    const chunkToFile = new Map<string, string>();
+    for (const file of files) {
+      const chunks = getChunksByFileId(db, file.id);
+      for (const chunk of chunks) {
+        chunkToFile.set(chunk.id, file.id);
+      }
+    }
+
+    // 관계를 파일 레벨 엣지로 변환
+    const allRelations = getAllRelations(db);
+    const edgeDedup = new Map<string, { id: string; source: string; target: string; type: string }>();
+
+    for (const rel of allRelations) {
+      const source = chunkToFile.get(rel.sourceChunkId);
+      const target = chunkToFile.get(rel.targetChunkId);
+      if (!source || !target || source === target) continue;
+
+      // 같은 source-target 쌍은 하나의 엣지로 합침
+      const key = `${source}-${target}-${rel.relationType}`;
+      if (!edgeDedup.has(key)) {
+        edgeDedup.set(key, {
+          id: rel.id,
+          source,
+          target,
+          type: rel.relationType,
+        });
+      }
+    }
+
+    return c.json({ nodes, edges: Array.from(edgeDedup.values()) });
   });
 
   // ─── SPA: React 정적 파일 서빙 (프로덕션) ──────────────

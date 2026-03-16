@@ -443,6 +443,12 @@ export function deleteRelationsByFileChunks(db: Database.Database, chunkIds: str
   db.prepare(`DELETE FROM relations WHERE source_chunk_id IN (${placeholders}) OR target_chunk_id IN (${placeholders})`).run(...chunkIds, ...chunkIds);
 }
 
+export function getAllRelations(db: Database.Database): Relation[] {
+  const d = getDrizzle(db);
+  const rows = d.select().from(schema.relations).all();
+  return rows.map(drizzleRowToRelation);
+}
+
 export function getRelationCount(db: Database.Database): number {
   const d = getDrizzle(db);
   const row = d.select({ count: count() }).from(schema.relations).get();

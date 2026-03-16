@@ -81,6 +81,25 @@ export interface SearchResult {
   rank: number;
 }
 
+export interface GraphNode {
+  id: string;
+  label: string;
+  docType: string;
+  totalTokens: number;
+}
+
+export interface GraphEdge {
+  id: string;
+  source: string;
+  target: string;
+  type: string;
+}
+
+export interface GraphData {
+  nodes: GraphNode[];
+  edges: GraphEdge[];
+}
+
 // ─── API Calls ────────────────────────────────────────
 
 export const api = {
@@ -92,4 +111,5 @@ export const api = {
   files: () => get<FileItem[]>("/files"),
   fileChunks: (fileId: string) => get<ChunkItem[]>(`/files/${fileId}/chunks`),
   search: (query: string) => get<SearchResult[]>(`/search?q=${encodeURIComponent(query)}`),
+  graph: () => get<GraphData>("/graph"),
 };
