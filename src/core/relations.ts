@@ -169,12 +169,15 @@ export function createRelationEngine(deps: RelationEngineDeps): RelationEngine {
       const now = new Date().toISOString();
 
       try {
-        const results = await deps.aiProvider.chatJSON<Array<{
+        const raw = await deps.aiProvider.chatJSON<unknown>(prompt);
+
+        // LLM이 배열 대신 단일 객체를 반환할 수 있음
+        const results: Array<{
           pair_index: number;
           is_conflict: boolean;
           severity: string;
           description: string;
-        }>>(prompt);
+        }> = Array.isArray(raw) ? raw : [raw as any];
 
         const conflicts: Conflict[] = [];
 
