@@ -287,22 +287,10 @@ export async function runIndex(
       }
 
       // 프롬프트 크기 제한: 변경 파일 우선, 최대 50개 + 유사 쌍 20개
-      const MAX_FILE_SUMMARIES = 50;
       const MAX_PAIRS = 20;
-      // 변경된 파일을 먼저, 나머지를 뒤에 배치
-      const changedSummaries = fileSummaries.filter((_, i) => {
-        const path = [...allFileIds.keys()][i];
-        return changedFilePaths.has(path);
-      });
-      const unchangedSummaries = fileSummaries.filter((_, i) => {
-        const path = [...allFileIds.keys()][i];
-        return !changedFilePaths.has(path);
-      });
-      const prioritized = [...changedSummaries, ...unchangedSummaries];
-      const cappedSummaries = prioritized.slice(0, MAX_FILE_SUMMARIES);
-      if (fileSummaries.length > MAX_FILE_SUMMARIES) {
-        cappedSummaries.push(`... and ${fileSummaries.length - MAX_FILE_SUMMARIES} more files (omitted for context limit)`);
-      }
+      const cappedSummaries = capFileSummaries(
+        fileSummaries, [...allFileIds.keys()], changedFilePaths,
+      );
       if (pairsWithContent.length > MAX_PAIRS) {
         pairsWithContent = pairsWithContent.slice(0, MAX_PAIRS);
         pairSummaries = "\n\nSimilar chunk pairs to check for conflicts:\n" +
@@ -440,6 +428,27 @@ If a section has no results, use empty array [].`;
     `\nDone in ${elapsed}s: ${indexed} indexed, ${skipped} skipped, ${errors} errors`,
   );
 }
+
+// ─── Exported for testing ────────────────────────────────
+
+const MAX_FILE_SUMMARIES = 50;
+
+export function capFileSummaries(
+  fileSummaries: string[],
+  filePaths: string[],
+  changedFilePaths: Set<string>,
+): string[] {
+  const changedSummaries = fileSummaries.filter((_, i) => changedFilePaths.has(filePaths[i]));
+  const unchangedSummaries = fileSummaries.filter((_, i) => !changedFilePaths.has(filePaths[i]));
+  const prioritized = [...changedSummaries, ...unchangedSummaries];
+  const capped = prioritized.slice(0, MAX_FILE_SUMMARIES);
+  if (fileSummaries.length > MAX_FILE_SUMMARIES) {
+    capped.push(`... and ${fileSummaries.length - MAX_FILE_SUMMARIES} more files (omitted for context limit)`);
+  }
+  return capped;
+}
+
+// ─── Helpers ─────────────────────────────────────────────
 
 function findMdFiles(dir: string, projectRoot: string): string[] {
   const results: string[] = [];
