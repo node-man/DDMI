@@ -13,6 +13,7 @@ import {
   initDatabase,
   getFileCount,
   getChunkCount,
+  getChunksByFileId,
   searchBM25,
   getOpenConflicts,
 } from "../storage/sqlite.js";
@@ -36,6 +37,8 @@ const MAX_SELECT = 10;
 const REDUNDANCY_SKIP = 0.95;
 const REDUNDANCY_PENALIZE = 0.85;
 const RECENCY_DATE_SPREAD_THRESHOLD = 30; // days
+const SIBLING_MAX_PER_FILE = 3; // 파일당 추가 sibling 최대 수
+const SIBLING_BUDGET_RATIO = 0.30; // direct budget의 30%까지 sibling에 사용
 
 // ─── Public API ──────────────────────────────────────────
 
@@ -82,9 +85,12 @@ export async function createCurator(deps: CuratorDeps) {
       const directBudget = maxTokens - conflictBudget;
 
       // 4a. Direct context packing
-      const selected = packBudget(scored, directBudget, weights, req.exclude);
+      const packed = packBudget(scored, directBudget, weights, req.exclude);
 
-      // 4b. Conflict context (open conflicts involving selected chunks)
+      // 4b. Sibling section expansion — 선택된 청크의 같은 파일에서 인접 섹션 자동 포함
+      const selected = expandSiblings(packed, scored, directBudget, deps.dbPath, req.exclude);
+
+      // 4c. Conflict context (open conflicts involving selected chunks)
       const conflictBlocks = getConflictBlocks(deps.dbPath, selected, conflictBudget);
 
       // 5. Assemble
@@ -138,7 +144,7 @@ export async function createCurator(deps: CuratorDeps) {
 
 // ─── Exported for testing ────────────────────────────────
 
-export { scoreCandidates, packBudget, computeKeywordBoost, computeCoverage };
+export { scoreCandidates, packBudget, expandSiblings, computeKeywordBoost, computeCoverage };
 export type { ScoredCandidate };
 
 // ─── Scoring ─────────────────────────────────────────────
@@ -309,6 +315,126 @@ function packBudget(
   return selected;
 }
 
+// ─── Sibling Section Expansion ───────────────────────────
+
+/**
+ * 선택된 청크의 같은 파일에서 인접 섹션을 자동 포함한다.
+ *
+ * 전략:
+ * - 선택된 파일별로, DB에서 같은 파일의 모든 청크를 가져온다
+ * - 선택된 청크의 rowid 기준으로 인접 청크(바로 앞/뒤)를 우선 확장
+ * - 예산(direct budget의 SIBLING_BUDGET_RATIO)과 파일당 최대 수 제한
+ * - 이미 scored pool에 있는 청크는 해당 스코어 유지, 없으면 0.5 baseline
+ */
+function expandSiblings(
+  selected: ScoredCandidate[],
+  allScored: ScoredCandidate[],
+  directBudget: number,
+  dbPath: string,
+  exclude?: string[],
+): ScoredCandidate[] {
+  if (selected.length === 0) return selected;
+
+  const usedTokens = selected.reduce((s, c) => s + c.result.tokenCount, 0);
+  const siblingBudget = Math.min(
+    directBudget - usedTokens,
+    Math.floor(directBudget * SIBLING_BUDGET_RATIO),
+  );
+  if (siblingBudget <= 0) return selected;
+
+  const selectedIds = new Set(selected.map((s) => s.result.id));
+  const scoredMap = new Map(allScored.map((s) => [s.result.id, s]));
+
+  // 파일별 선택된 청크 그룹핑
+  const fileGroups = new Map<string, ScoredCandidate[]>();
+  for (const s of selected) {
+    const arr = fileGroups.get(s.result.fileId) ?? [];
+    arr.push(s);
+    fileGroups.set(s.result.fileId, arr);
+  }
+
+  const db = initDatabase(dbPath);
+  const siblings: ScoredCandidate[] = [];
+  let siblingTokens = 0;
+
+  try {
+    for (const [fileId, fileSelected] of fileGroups) {
+      // 파일당 sibling 추가 수 제한
+      let addedForFile = 0;
+
+      const allChunks = getChunksByFileId(db, fileId);
+      if (allChunks.length <= 1) continue;
+
+      // 선택된 청크의 인덱스 찾기
+      const selectedIndices = new Set<number>();
+      for (const sel of fileSelected) {
+        const idx = allChunks.findIndex((c) => c.id === sel.result.id);
+        if (idx >= 0) selectedIndices.add(idx);
+      }
+
+      // BFS-like expansion: 선택된 위치에서 가까운 순서로 인접 청크 수집
+      const candidateIndices: number[] = [];
+      for (const idx of selectedIndices) {
+        // 바로 앞/뒤 우선
+        if (idx > 0 && !selectedIndices.has(idx - 1)) candidateIndices.push(idx - 1);
+        if (idx < allChunks.length - 1 && !selectedIndices.has(idx + 1)) candidateIndices.push(idx + 1);
+      }
+      // 중복 제거, 순서 유지
+      const seen = new Set<number>();
+      const uniqueIndices = candidateIndices.filter((i) => {
+        if (seen.has(i)) return false;
+        seen.add(i);
+        return true;
+      });
+
+      for (const idx of uniqueIndices) {
+        if (addedForFile >= SIBLING_MAX_PER_FILE) break;
+        if (siblingTokens >= siblingBudget) break;
+
+        const chunk = allChunks[idx];
+        if (selectedIds.has(chunk.id)) continue;
+        if (exclude?.some((ex) => chunk.id.includes(ex))) continue;
+        if (siblingTokens + chunk.tokenCount > siblingBudget) continue;
+
+        // scored pool에 있으면 기존 스코어 사용, 없으면 synthetic
+        const existing = scoredMap.get(chunk.id);
+        const candidate: ScoredCandidate = existing ?? {
+          result: {
+            id: chunk.id,
+            vector: [],
+            fileId: chunk.fileId,
+            filePath: fileSelected[0].result.filePath,
+            sectionPath: chunk.sectionPath,
+            content: chunk.content,
+            docType: fileSelected[0].result.docType,
+            date: fileSelected[0].result.date,
+            tokenCount: chunk.tokenCount,
+            distance: 0,
+            similarity: 0,
+          },
+          semanticSim: 0,
+          keywordBoost: 0,
+          taskAwareAuthority: fileSelected[0].taskAwareAuthority,
+          recency: fileSelected[0].recency,
+          rawScore: 0,
+          redundancyPenalty: 0,
+          finalScore: 0,
+        };
+
+        // sibling임을 표시 (finalScore에 반영하지 않지만 debug에서 추적 가능)
+        selectedIds.add(chunk.id);
+        siblings.push(candidate);
+        siblingTokens += chunk.tokenCount;
+        addedForFile++;
+      }
+    }
+  } finally {
+    db.close();
+  }
+
+  return [...selected, ...siblings];
+}
+
 // ─── Coverage Score ──────────────────────────────────────
 
 function computeCoverage(
@@ -449,7 +575,9 @@ function assembleLevel0(
     }));
 
     const scored = scoreCandidates(candidates, req.intent, req.taskType, weights);
-    const selected = packBudget(scored, req.maxTokens ?? 8000, weights, req.exclude);
+    const maxTokens = req.maxTokens ?? 8000;
+    const packed = packBudget(scored, maxTokens, weights, req.exclude);
+    const selected = expandSiblings(packed, scored, maxTokens, dbPath, req.exclude);
 
     const blocks: ContextBlock[] = selected.map((s) => ({
       content: s.result.content,

@@ -1,0 +1,266 @@
+[
+  {
+    "id": 1,
+    "question": "ddmi의 한 줄 정의는 무엇인가?",
+    "category": "factual",
+    "task_type": "research",
+    "key_facts": ["Document-Driven", "Memory Infrastructure", "AI Agent", "컨텍스트"],
+    "expected_sources": ["docs/DDMI.md", "README.md"]
+  },
+  {
+    "id": 2,
+    "question": "Context Curator의 기본 max_tokens 값은?",
+    "category": "factual",
+    "task_type": "implementation",
+    "key_facts": ["8000"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 3,
+    "question": "청킹 시 섹션의 토큰 상한과 하한은?",
+    "category": "factual",
+    "task_type": "implementation",
+    "key_facts": ["500", "50"],
+    "expected_sources": ["docs/DDMI.md"]
+  },
+  {
+    "id": 4,
+    "question": "기본 임베딩 모델은 무엇이고 왜 선택했는가?",
+    "category": "factual",
+    "task_type": "research",
+    "key_facts": ["paraphrase-multilingual-MiniLM-L12-v2", "다국어", "한국어"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md", "docs/RFC-001-embedding-upgrade.md"]
+  },
+  {
+    "id": 5,
+    "question": "SQLite에 정의된 테이블 목록은?",
+    "category": "factual",
+    "task_type": "implementation",
+    "key_facts": ["files", "chunks", "relations", "conflicts", "audit_log", "feedback_log"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 6,
+    "question": "MCP Server의 기본 transport 방식은?",
+    "category": "factual",
+    "task_type": "implementation",
+    "key_facts": ["stdio"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 7,
+    "question": "MVP-0의 기간과 범위는?",
+    "category": "factual",
+    "task_type": "planning",
+    "key_facts": ["3주", "Semantic Index", "Context Curator", "context_assemble"],
+    "expected_sources": ["docs/DDMI.md", "docs/MVP0-PLAN.md", "CLAUDE.md"]
+  },
+  {
+    "id": 8,
+    "question": "AITaskQueue의 기본 배치 크기와 flush 간격은?",
+    "category": "factual",
+    "task_type": "implementation",
+    "key_facts": ["10", "3초", "3000"],
+    "expected_sources": ["docs/DDMI.md", "docs/MVP1-PLAN.md"]
+  },
+  {
+    "id": 9,
+    "question": "Graceful Degradation Level 1에서 사용 가능한 기능은?",
+    "category": "factual",
+    "task_type": "research",
+    "key_facts": ["벡터", "유사도", "transformers.js", "임베딩"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 10,
+    "question": "ddmi init 명령어가 수행하는 작업은?",
+    "category": "factual",
+    "task_type": "implementation",
+    "key_facts": [".ddmi", "config.toml", ".gitignore"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md", "docs/MVP0-PLAN.md"]
+  },
+  {
+    "id": 11,
+    "question": "MVP-0에서 AI Provider 추상화를 제외한 근거는 무엇인가?",
+    "category": "reasoning",
+    "task_type": "planning",
+    "key_facts": ["context_assemble", "LLM 호출", "0회", "transformers.js", "쿼리 경로"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 12,
+    "question": "한국어 프로젝트에서 all-MiniLM-L6-v2를 쓰면 안 되는 이유는?",
+    "category": "reasoning",
+    "task_type": "research",
+    "key_facts": ["한국어", "영어", "multilingual"],
+    "expected_sources": ["docs/RFC-001-embedding-upgrade.md", "docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 13,
+    "question": "context_assemble에 LLM 호출이 0회인 이유를 기술적으로 설명하라.",
+    "category": "reasoning",
+    "task_type": "implementation",
+    "key_facts": ["임베딩", "벡터 검색", "스코어링", "알고리즘"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 14,
+    "question": "충돌 감지에서 high-precision/low-recall 전략을 선택한 이유는?",
+    "category": "reasoning",
+    "task_type": "review",
+    "key_facts": ["false positive", "노이즈"],
+    "expected_sources": ["docs/DDMI.md"]
+  },
+  {
+    "id": 15,
+    "question": "MVP-0 Week 1 스프린트에서 가장 리스크가 높은 태스크와 그 이유는?",
+    "category": "reasoning",
+    "task_type": "planning",
+    "key_facts": ["transformers.js", "LanceDB", "성능", "호환성"],
+    "expected_sources": ["docs/DDMI.md", "docs/MVP0-PLAN.md"]
+  },
+  {
+    "id": 16,
+    "question": "인덱싱 5분 목표 달성이 어려울 수 있는 근거는?",
+    "category": "reasoning",
+    "task_type": "research",
+    "key_facts": ["CPU", "배치"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 17,
+    "question": "MVP-1 Dashboard를 React 대신 Hono+htmx로 결정한 배경은?",
+    "category": "reasoning",
+    "task_type": "planning",
+    "key_facts": ["MVP", "최소", "React", "Phase"],
+    "expected_sources": ["docs/DDMI.md", "docs/MVP1-PLAN.md"]
+  },
+  {
+    "id": 18,
+    "question": "BM25 fallback 구현에 SQLite FTS5가 최적인 이유는?",
+    "category": "reasoning",
+    "task_type": "implementation",
+    "key_facts": ["SQLite", "FTS5"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 19,
+    "question": "Curator 스코어링에서 relation_strength 가중치를 0으로 두는 이유는?",
+    "category": "reasoning",
+    "task_type": "implementation",
+    "key_facts": ["관계", "MVP-0"],
+    "expected_sources": ["docs/DDMI.md"]
+  },
+  {
+    "id": 20,
+    "question": "paraphrase-multilingual 모델과 all-MiniLM의 한국어 정확도 차이는?",
+    "category": "reasoning",
+    "task_type": "research",
+    "key_facts": ["한국어"],
+    "expected_sources": ["docs/RFC-001-embedding-upgrade.md", "docs/DDMI.md"]
+  },
+  {
+    "id": 21,
+    "question": "MD 파서를 구현할 때 참고해야 할 핵심 사항은?",
+    "category": "task_context",
+    "task_type": "implementation",
+    "key_facts": ["remark", "frontmatter", "헤딩", "코드블록"],
+    "expected_sources": ["docs/DDMI.md", "docs/MVP0-PLAN.md"]
+  },
+  {
+    "id": 22,
+    "question": "ddmi init 구현 시 생성해야 할 파일과 디렉토리는?",
+    "category": "task_context",
+    "task_type": "implementation",
+    "key_facts": [".ddmi", "index.db", "config.toml"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 23,
+    "question": "스코어링 함수 구현 시 config.toml에서 읽어야 할 설정값 목록은?",
+    "category": "task_context",
+    "task_type": "implementation",
+    "key_facts": ["semantic_sim", "recency", "redundancy"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 24,
+    "question": "리뷰 에이전트가 코드 리뷰 시 확인해야 할 핵심 항목은?",
+    "category": "task_context",
+    "task_type": "review",
+    "key_facts": ["응답 시간", "불변성", "rationale"],
+    "expected_sources": ["docs/agents/SENIOR_REVIEWER_AGENT.md", "AGENTS.md"]
+  },
+  {
+    "id": 25,
+    "question": "MVP-0 Week 2에 eval 프레임워크를 포함시킨 이유는?",
+    "category": "task_context",
+    "task_type": "planning",
+    "key_facts": ["가중치", "튜닝", "재평가"],
+    "expected_sources": ["docs/DDMI.md", "docs/MVP0-PLAN.md"]
+  },
+  {
+    "id": 26,
+    "question": "LanceDB가 특정 플랫폼에서 문제가 될 수 있는 시나리오는?",
+    "category": "task_context",
+    "task_type": "research",
+    "key_facts": ["ARM", "Linux"],
+    "expected_sources": ["docs/DDMI.md", "docs/RFC-001-embedding-upgrade.md"]
+  },
+  {
+    "id": 27,
+    "question": "transformers.js 임베딩의 배치 처리와 성능 특성은?",
+    "category": "task_context",
+    "task_type": "implementation",
+    "key_facts": ["배치"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 28,
+    "question": "mutate_audited에서 원본 포맷을 보존해야 하는 이유와 구현 방식은?",
+    "category": "task_context",
+    "task_type": "implementation",
+    "key_facts": ["remark", "AST", "보존"],
+    "expected_sources": ["docs/DDMI.md"]
+  },
+  {
+    "id": 29,
+    "question": "Day 1 가설 검증이 실패하면 어떻게 대응하는가?",
+    "category": "task_context",
+    "task_type": "planning",
+    "key_facts": ["스코어링", "전략", "재정의"],
+    "expected_sources": ["docs/DDMI.md", "docs/MVP0-PLAN.md"]
+  },
+  {
+    "id": 30,
+    "question": "코딩 에이전트와 QA 에이전트의 역할 분담 차이는?",
+    "category": "task_context",
+    "task_type": "review",
+    "key_facts": ["함수형", "vitest", "커버리지"],
+    "expected_sources": ["AGENTS.md", ".claude/commands/qa.md"]
+  },
+  {
+    "id": 31,
+    "question": "Curator 스코어링 공식의 가중치와 초기값을 나열하라.",
+    "category": "factual",
+    "task_type": "implementation",
+    "key_facts": ["semantic_sim", "recency", "0.15"],
+    "expected_sources": ["docs/DDMI.md", "CLAUDE.md"]
+  },
+  {
+    "id": 32,
+    "question": "임베딩 벡터의 차원 수는 모델에 따라 어떻게 다른가?",
+    "category": "factual",
+    "task_type": "research",
+    "key_facts": ["384", "1024"],
+    "expected_sources": ["docs/RFC-001-embedding-upgrade.md", "docs/DDMI.md"]
+  },
+  {
+    "id": 33,
+    "question": "ddmi가 해결하는 핵심 고통(pain point)은 무엇인가?",
+    "category": "reasoning",
+    "task_type": "research",
+    "key_facts": ["컨텍스트", "수동", "충돌", "모순"],
+    "expected_sources": ["docs/DDMI.md", "README.md"]
+  }
+]

@@ -1,9 +1,10 @@
 # RFC-001: 임베딩 모델 업그레이드
 
-- **상태**: Draft
+- **상태**: Revised (2026-03-17) — 결론 변경: "즉시 교체" → "bake-off 후 결정"
 - **작성일**: 2026-03-16
+- **최종 수정**: 2026-03-17
 - **작성자**: ddmi 팀
-- **관련 문서**: `CLAUDE.md`, `eval/results/hybrid_tuning_2026-03-15.json`, `eval/results/package_a_results.json`, `eval/corpus/research/embedding-models-comparison.md`, `eval/corpus/research/day1-experiment-results.md`
+- **관련 문서**: `CLAUDE.md`, `docs/RFC-001-embedding-upgrade-review.md`, `eval/questions.json`
 
 ---
 
@@ -457,3 +458,67 @@ bge-m3 예상:
 - Approach D: rank 7에 `review-agent.md > 에러 핸들링` 1개만 (similarity 0.566)
 
 이는 384차원 모델이 "코드 리뷰 시 확인해야 할 핵심 항목"이라는 질의와 "보안", "성능", "타입 안전성" 같은 개별 섹션 제목 간의 의미적 연결을 포착하지 못하는 전형적인 사례다. 1024차원 모델에서는 이러한 상위 개념-하위 항목 간 관계를 더 잘 포착할 것으로 기대한다.
+
+---
+
+## 11. 후속 실험 결과 (2026-03-17 추가)
+
+### 11.1. First Principles 리뷰 (RFC-001-embedding-upgrade-review.md)
+
+본 RFC의 "bge-m3 즉시 기본값 교체" 결론에 대해 First Principles 리뷰를 수행한 결과, 다음 가정이 도전받았다:
+
+1. **"answer quality 열세의 주범이 임베딩 하나"** — False premise. fact_recall 0.777~0.838로 이미 충분. 병목은 retrieval coverage/structure.
+2. **"bge-m3 sparse/multi-vector 장점이 곧바로 적용된다"** — False premise. 실제 구현은 dense 교체 + query prefix뿐.
+3. **"현상 유지 불가 = 즉시 모델 교체"** — False premise. retrieval 구조 개선과 bake-off가 더 낮은 리스크.
+
+### 11.2. eval 프레임워크 수정
+
+**발견**: `eval/questions.json`의 `expected_sources`가 이론적 파일 구조(specs/, decisions/, meetings/)를 참조하고 있었으나, 실제 인덱싱된 파일은 18개(docs/DDMI.md, CLAUDE.md 등)로 완전히 다른 구조. 결과적으로 source_recall과 source_precision이 **전 질문에서 0.000**으로, composite의 60%가 영구적으로 0이었다.
+
+**수정**: expected_sources를 실제 인덱싱 파일에 맞게 재매핑. key_facts도 실제 문서 내용에 맞게 보정.
+
+### 11.3. Sibling Section Expansion 실험
+
+임베딩 교체 대신, retrieval 구조 개선(hierarchical retrieval)을 먼저 실험:
+
+- **구현**: `packBudget` 후 같은 파일의 인접 섹션을 예산 내에서 자동 확장
+- **제약**: 파일당 최대 3개 sibling, direct budget의 30%까지
+
+### 11.4. 결과 비교
+
+**수정된 eval 기준 (동일 임베딩 모델: paraphrase-multilingual-MiniLM-L12-v2)**:
+
+| 지표 | Baseline (sibling OFF) | Sibling ON | 변화 |
+|------|----------------------|------------|------|
+| fact_recall | 0.616 | **0.738** | +19.8% |
+| source_recall | 0.687 | 0.687 | 동일 |
+| source_precision | 0.254 | 0.254 | 동일 |
+| COMPOSITE | 0.572 | **0.621** | +8.6% |
+| avg tokens | 1,108 | 2,743 | +148% |
+
+카테고리별:
+
+| 카테고리 | Baseline | Sibling ON | 변화 |
+|----------|----------|------------|------|
+| factual | 0.619 | 0.633 | +2.3% |
+| reasoning | 0.575 | **0.646** | +12.3% |
+| task_context | 0.511 | 0.577 | +12.9% |
+
+### 11.5. 결론 변경
+
+**원래 결론**: bge-m3를 기본값으로 즉시 교체
+
+**수정된 결론**: retrieval 구조 개선 + embedder bake-off로 변경
+
+1. eval 프레임워크 수정만으로 composite 0.185 → 0.572 — 기존 "품질 미달" 판단의 대부분은 측정 오류
+2. sibling expansion으로 추가 0.572 → 0.621 — 임베딩 교체 없이도 retrieval 구조 개선이 유효
+3. **composite 0.621로 목표 0.5+ 달성** — 현재 임베딩 모델에서도 제품 가치 입증 가능
+4. bge-m3는 "즉시 교체"가 아닌 **embedder bake-off의 유력 후보**로 위치 변경
+
+### 11.6. 남은 과제
+
+| 과제 | 우선순위 | 설명 |
+|------|----------|------|
+| source_precision 0.254 → 0.30+ | 중간 | scored sibling (키워드 필터링) 또는 embedder bake-off |
+| embedder bake-off | 낮음 (출시 후) | current vs bge-m3 vs e5-large 동일 파이프라인 비교 |
+| npm publish | 높음 | composite 0.621로 출시 가능 수준 도달 |
