@@ -38,7 +38,7 @@ export interface RelationEngineDeps {
   embedder: Embedder | null;
   lance: LanceConnection | null;
   aiProvider: AIProvider | null;
-  similarityThreshold?: number; // default 0.75
+  similarityThreshold?: number; // default 0.85 (Level 1 후보 필터용)
 }
 
 export interface RelationEngine {
@@ -73,7 +73,7 @@ export interface RelationEngine {
 }
 
 export function createRelationEngine(deps: RelationEngineDeps): RelationEngine {
-  const threshold = deps.similarityThreshold ?? 0.75;
+  const threshold = deps.similarityThreshold ?? 0.85;
   const db = initDatabase(deps.dbPath);
 
   return {

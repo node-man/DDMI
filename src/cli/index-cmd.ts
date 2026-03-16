@@ -28,7 +28,7 @@ import {
   deleteByFileId,
 } from "../storage/lance.js";
 import { randomUUID } from "node:crypto";
-import type { FileRecord, VectorRecord, ExplicitLink } from "../types.js";
+import type { FileRecord, VectorRecord, ExplicitLink, Relation } from "../types.js";
 import { createRelationEngine } from "../core/relations.js";
 import { deleteRelationsByFileChunks, enqueueTask } from "../storage/sqlite.js";
 import { loadConfig } from "../core/config.js";
@@ -225,71 +225,108 @@ export async function runIndex(
       relCount += rels.length;
     }
 
-    // 2. 임베딩 유사도 후보 (Level 1)
-    const pairs = await relationEngine.findSimilarPairs(changedChunkIds);
-
-    // 2.5. 유사도 쌍을 embedding 관계로 저장 (그래프에 표시)
-    //   AI provider가 있으면 LLM에 관계 타입을 물어봄, 없으면 "references"로 저장
-    if (pairs.length > 0) {
+    // 2. AI 파일 단위 관계 추출 (Level 2)
+    let aiRelCount = 0;
+    if (aiProvider && indexed > 0) {
+      console.log(`  AI relation extraction: analyzing ${allFileIds.size} files...`);
       const { insertRelations } = await import("../storage/sqlite.js");
       const now = new Date().toISOString();
+      const allRelations: Relation[] = [];
 
-      // AI 관계 타입 추론 결과 캐시
-      const aiRelationTypes = new Map<string, { relationType: string; confidence: number }>();
+      // 파일 목록을 문자열로 준비
+      const fileList = [...allFileIds.entries()]
+        .map(([path]) => `- ${path}`)
+        .join("\n");
 
-      if (aiProvider) {
-        console.log(`  AI relation extraction: ${pairs.length} pairs...`);
-        for (const p of pairs) {
+      for (const [filePath, fileId] of allFileIds) {
+        // 파일의 청크를 가져옴
+        const chunks = getChunksByFileId(db, fileId);
+        if (chunks.length === 0) continue;
+
+        // 첫 2개 청크의 내용 (파일의 주제 파악용)
+        const fileContent = chunks.slice(0, 2).map(c => c.content).join("\n").slice(0, 600);
+
+        const prompt = `You are analyzing document relationships in a project.
+
+This document: ${filePath}
+Content summary:
+${fileContent}
+
+Other files in the project:
+${fileList}
+
+Which files are related to "${filePath}" and how?
+For each related file, specify the relationship type:
+- references: this document mentions or cites the other
+- depends_on: this document requires the other to be correct
+- derived_from: this document was created based on the other
+- supersedes: this document replaces or updates the other
+
+Rules:
+- Only list genuinely related files (not every file)
+- Maximum 5 relations per file
+- Do NOT include the file itself
+- Confidence 0.5-1.0
+
+Respond with JSON array:
+[{"target": "path/to/file.md", "relationType": "depends_on", "confidence": 0.8}]
+If no relations found, respond with: []`;
+
+        try {
+          let raw: unknown;
           try {
-            const chunkA = db.prepare("SELECT content, section_path FROM chunks WHERE id = ?").get(p.a) as { content: string; section_path: string } | undefined;
-            const chunkB = db.prepare("SELECT content, section_path FROM chunks WHERE id = ?").get(p.b) as { content: string; section_path: string } | undefined;
-            if (!chunkA || !chunkB) continue;
-
-            const prompt = `Analyze the relationship between these two document chunks.
-
-Chunk A: ${chunkA.content.slice(0, 400)}
-Chunk B: ${chunkB.content.slice(0, 400)}
-
-Choose the relationship type:
-- references: A mentions or cites B
-- depends_on: A requires B to be correct
-- derived_from: A was created based on B
-- supersedes: A replaces or updates B
-- contradicts: A conflicts with B
-
-Respond with JSON: {"relationType": "one_of_above", "confidence": 0.0-1.0}`;
-
-            const result = await aiProvider.chatJSON<{ relationType: string; confidence: number }>(prompt);
-            const validTypes = ["references", "depends_on", "derived_from", "supersedes", "contradicts"];
-            if (validTypes.includes(result.relationType)) {
-              aiRelationTypes.set(`${p.a}-${p.b}`, result);
-            }
+            raw = await aiProvider.chatJSON<unknown>(prompt);
           } catch {
-            // 분류 실패 시 기본값 "references"로
+            continue; // JSON 파싱 실패 → skip
           }
-        }
-        if (aiRelationTypes.size > 0) {
-          console.log(`  AI classified ${aiRelationTypes.size}/${pairs.length} relation types`);
+
+          const results = Array.isArray(raw) ? raw : [raw];
+          let fileRelCount = 0;
+
+          for (const r of results) {
+            if (!r || typeof r !== "object") continue;
+            const rObj = r as Record<string, unknown>;
+            if (!rObj.target || !rObj.relationType) continue;
+            const targetFileId = allFileIds.get(rObj.target as string);
+            if (!targetFileId || targetFileId === fileId) continue;
+
+            const validTypes = ["references", "depends_on", "derived_from", "supersedes", "contradicts"];
+            if (!validTypes.includes(rObj.relationType as string)) continue;
+
+            // source 파일의 첫 청크 → target 파일의 첫 청크 관계
+            const targetChunks = getChunksByFileId(db, targetFileId);
+            if (targetChunks.length === 0) continue;
+
+            allRelations.push({
+              id: `ai-${fileId.slice(0, 6)}-${targetFileId.slice(0, 6)}-${randomUUID().slice(0, 4)}`,
+              sourceChunkId: chunks[0].id,
+              targetChunkId: targetChunks[0].id,
+              relationType: rObj.relationType as Relation["relationType"],
+              confidence: typeof rObj.confidence === "number" ? rObj.confidence : 0.7,
+              extractionMethod: "ai" as const,
+              metadata: { source: filePath, target: rObj.target as string },
+              createdAt: now,
+            });
+            fileRelCount++;
+          }
+
+          console.log(`    ${filePath} → ${fileRelCount} relations`);
+        } catch {
+          // 파일 분석 실패 → skip
         }
       }
 
-      const simRelations = pairs.map((p) => {
-        const aiResult = aiRelationTypes.get(`${p.a}-${p.b}`);
-        return {
-          id: `sim-${p.a.slice(0, 6)}-${p.b.slice(0, 6)}`,
-          sourceChunkId: p.a,
-          targetChunkId: p.b,
-          relationType: (aiResult?.relationType ?? "references") as "references" | "depends_on" | "derived_from" | "supersedes" | "contradicts",
-          confidence: aiResult?.confidence ?? p.similarity,
-          extractionMethod: (aiResult ? "ai" : "embedding") as "explicit" | "embedding" | "ai",
-          metadata: { similarity: p.similarity },
-          createdAt: now,
-        };
-      });
-      insertRelations(db, simRelations);
+      if (allRelations.length > 0) {
+        insertRelations(db, allRelations);
+        aiRelCount = allRelations.length;
+        console.log(`  AI extracted ${aiRelCount} relations`);
+      }
     }
 
-    // 3. 충돌 감지
+    // 3. 임베딩 유사도 후보 → 충돌 감지 (Level 1+2)
+    const pairs = await relationEngine.findSimilarPairs(changedChunkIds);
+
+    // 충돌 감지
     let conflictCount = 0;
     if (pairs.length > 0) {
       const pairsWithContent = pairs.map((p) => {
@@ -326,11 +363,11 @@ Respond with JSON: {"relationType": "one_of_above", "confidence": 0.0-1.0}`;
       }
     }
 
-    if (relCount > 0 || pairs.length > 0) {
+    if (relCount > 0 || aiRelCount > 0 || pairs.length > 0) {
       const action = aiProvider
         ? `${conflictCount} conflicts detected`
         : `${pairs.length} tasks queued`;
-      console.log(`  Relations: ${relCount} explicit, ${pairs.length} similar pairs → ${action}`);
+      console.log(`  Relations: ${relCount} explicit, ${aiRelCount} AI, ${pairs.length} similar pairs → ${action}`);
     }
 
     const stats = relationEngine.stats();
