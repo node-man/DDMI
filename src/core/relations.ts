@@ -169,7 +169,13 @@ export function createRelationEngine(deps: RelationEngineDeps): RelationEngine {
       const now = new Date().toISOString();
 
       try {
-        const raw = await deps.aiProvider.chatJSON<unknown>(prompt);
+        let raw: unknown;
+        try {
+          raw = await deps.aiProvider.chatJSON<unknown>(prompt);
+        } catch {
+          // 빈 응답 또는 JSON 파싱 실패 → no conflict로 간주
+          return [];
+        }
 
         // LLM이 배열 대신 단일 객체를 반환할 수 있음
         const results: Array<{
