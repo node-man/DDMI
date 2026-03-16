@@ -98,6 +98,25 @@ src/client/
 
 ## 2. 주차별 분해
 
+### Sprint 0: Drizzle ORM 마이그레이션 (Phase 2 시작 전)
+
+**목표:** raw SQL 문자열 → Drizzle ORM 타입 안전 쿼리로 전환.
+
+**이유:** Phase 2에서 API 12개가 추가되는데, 현재 sqlite.ts의 raw SQL (30+ 쿼리, 7 테이블)은:
+- 컬럼명 변경 시 런타임에서야 발견되는 에러
+- `?` 순서와 파라미터 순서 불일치 시 silent data corruption
+- TypeScript가 SQL 문자열 내부 오류를 못 잡음
+
+**작업:**
+- [x] `drizzle-orm` + `drizzle-kit` 설치 (0.45.1 + 0.31.9)
+- [x] `src/storage/schema.ts` — 7개 테이블 Drizzle 스키마 정의
+- [ ] `src/storage/sqlite.ts` — raw SQL → Drizzle 쿼리로 리팩터
+- [ ] 기존 FTS5 virtual table은 raw SQL 유지 (Drizzle 미지원)
+- [ ] 150 tests 전부 통과 확인
+- [ ] CRUD 30+ 함수의 파라미터 타입 안전 확인
+
+**검증:** `npx vitest run` 전부 통과 + `npx tsc` 0 errors
+
 ### Week 1: React + Vite 셋업 + 프로젝트 골격
 
 **목표:** 개발 환경 완성. 빌드 → 서빙까지 end-to-end 작동.
