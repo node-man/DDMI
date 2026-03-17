@@ -28,10 +28,14 @@ Phase 2.5에서 AI 분석 기능을 구현했지만, 4개 provider 테스트에�
 
 | 지표 | 현재 | 목표 | 측정 방법 |
 |------|------|------|-----------|
-| Level 2 composite vs Level 1 composite | 동일 (0.629) | **+5% 이상** | `npm run eval` 비교 |
+| composite (with relations) | 0.629 | **≥ 0.66** | `npm run eval` (relation boost ON) |
+| composite (without relations) | 0.629 | 기준선 유지 | `npm run eval -- --no-relations` |
 | Ollama AI 분석 성공률 | 0% | **80%+** | `ddmi index --provider ollama` |
 | 500파일 AI 분석 커버리지 | 10% (캡) | **100%** | 배치 분할 후 전체 처리 확인 |
-| source_precision | 0.237 | **0.28+** | `npm run eval` |
+| source_precision | 0.237 | **≥ 0.28** | `npm run eval` |
+| relation_utilization | 미측정 | **≥ 0.30** | 선택 블록 중 관계 연결 블록 비율 |
+
+**A/B 비교 표준 절차**: 매 개선마다 relation boost ON/OFF 양쪽 eval을 실행하여 순수 기여도를 측정한다.
 
 ---
 
@@ -67,6 +71,12 @@ Phase 2.5에서 AI 분석 기능을 구현했지만, 4개 provider 테스트에�
 - few-shot 예시 1개를 프롬프트에 추가 (JSON 형식 안내)
 - ollama qwen3.5:9b로 10파일 배치 테스트
 - 성공률 80%+ 확인
+
+**Day 5: 인덱싱 성능 프로파일링**
+
+- 배치 분할 전후 인덱싱 시간 비교 (18파일 기준)
+- 임베딩 vs AI 호출 vs DB 저장 시간 분리 측정
+- 병목 식별 → Week 3 스케일 검증에 반영
 
 **검증 기준**:
 - [ ] Ollama 10파일 배치에서 JSON 성공
@@ -108,10 +118,22 @@ Phase 2.5에서 AI 분석 기능을 구현했지만, 4개 provider 테스트에�
 - 차이가 +5% 미만이면 가중치 조정
 - before/after 결과 문서화
 
+**Day 5: Dashboard API 핵심 테스트** (회고 피드백: PR #7 5차 리뷰의 원인)
+
+```
+새 파일: src/dashboard/server.test.ts
+```
+
+- `/api/providers` — provider 목록 반환 확인
+- `/api/index` — 인덱싱 트리거 + 상태 반환
+- `/api/knowledge-query` — curator 미초기화 시 에러 메시지
+- TTL router refresh 후 provider 상태 변경 확인
+
 **검증 기준**:
-- [ ] relation boost 적용 후 eval composite가 Level 1 대비 +5% 이상
-- [ ] source_precision 0.28+ 달성
+- [ ] relation boost 적용 후 eval composite ≥ 0.66
+- [ ] source_precision ≥ 0.28
 - [ ] `--no-relations` 플래그로 A/B 비교 가능
+- [ ] Dashboard API 핵심 4개 엔드포인트 테스트 통과
 
 ### Week 3: npm publish + 마무리
 
