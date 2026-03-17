@@ -373,6 +373,29 @@ export async function runIndex(
               conflicts?: Array<{pairIndex: number; severity: string; description: string}>;
             };
 
+            // 교차 관계 저장
+            const validRelTypes = ["references", "depends_on", "derived_from", "supersedes", "contradicts"];
+            const crossRelations: Relation[] = [];
+            for (const r of crossResult.relations ?? []) {
+              if (r.pairIndex < 0 || r.pairIndex >= pairsWithContent.length) continue;
+              if (!validRelTypes.includes(r.relationType)) continue;
+              const pair = pairsWithContent[r.pairIndex];
+              crossRelations.push({
+                id: `cross-${randomUUID().slice(0, 8)}`,
+                sourceChunkId: pair.aId,
+                targetChunkId: pair.bId,
+                relationType: r.relationType as Relation["relationType"],
+                confidence: typeof r.confidence === 'number' ? r.confidence : 0.6,
+                extractionMethod: "ai" as const,
+                metadata: { source: "cross-batch", pairIndex: r.pairIndex },
+                createdAt: now,
+              });
+            }
+            if (crossRelations.length > 0) {
+              insertRelations(db, crossRelations);
+              aiRelCount += crossRelations.length;
+            }
+
             // 교차 충돌 저장
             for (const c of crossResult.conflicts ?? []) {
               if (c.pairIndex < 0 || c.pairIndex >= pairsWithContent.length) continue;
@@ -388,7 +411,7 @@ export async function runIndex(
               });
               conflictCount++;
             }
-            console.log(`  Cross-batch result: ${crossResult.relations?.length ?? 0} relations, ${conflictCount} conflicts`);
+            console.log(`  Cross-batch result: ${crossRelations.length} relations, ${conflictCount} conflicts`);
           }
         } catch (err) {
           console.log(`  Cross-batch failed: ${(err as Error).message.slice(0, 60)}`);
