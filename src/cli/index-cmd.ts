@@ -34,6 +34,7 @@ import { deleteRelationsByFileChunks, enqueueTask } from "../storage/sqlite.js";
 import { loadConfig } from "../core/config.js";
 import { createRouter } from "../ai/router.js";
 import { initAILogger } from "../ai/logger.js";
+import type { FileSummary, SimilarPair } from "../ai/batch.js";
 
 const IGNORE_PATTERNS = ["node_modules", ".git", ".ddmi", "dist", ".test-tmp", "eval"];
 
@@ -247,117 +248,76 @@ export async function runIndex(
       }
     }
 
-    // ─── AI 통합 분석 (Level 2) — 1회 호출로 분류 + 관계 + 충돌 ─────
+    // ─── AI 배치 분석 (Level 2) — provider별 배치 크기로 분할 호출 ─────
     let aiRelCount = 0;
     let conflictCount = 0;
     if (aiProvider && indexed > 0) {
-      console.log(`  AI analysis: ${allFileIds.size} files (unified prompt)...`);
-      const { insertRelations } = await import("../storage/sqlite.js");
+      const { insertRelations, insertConflict } = await import("../storage/sqlite.js");
+      const { splitIntoBatches, buildBatchPrompt, buildCrossRelationPrompt } = await import("../ai/batch.js");
       const now = new Date().toISOString();
 
       // 파일 요약 준비
-      const fileSummaries: string[] = [];
-      const unknownDocTypes: string[] = [];
-
+      const fileSummaries: FileSummary[] = [];
       for (const [path, fid] of allFileIds) {
         const chunks = getChunksByFileId(db, fid);
         const summary = chunks.length > 0 ? chunks[0].content.slice(0, 200) : "(empty)";
         const docType = db.prepare("SELECT doc_type FROM files WHERE id = ?").get(fid) as { doc_type: string } | undefined;
-        fileSummaries.push(`- ${path} [${docType?.doc_type ?? "unknown"}]: ${summary}`);
-        if (docType?.doc_type === "unknown") {
-          unknownDocTypes.push(path);
-        }
+        fileSummaries.push({ path, fileId: fid, docType: docType?.doc_type ?? "unknown", summary });
       }
 
-      // 유사도 쌍 요약 (충돌 감지용)
-      let pairSummaries = "";
-      let pairsWithContent: Array<{aId: string; aContent: string; bId: string; bContent: string}> = [];
+      // 유사 쌍 준비 (교차 관계용)
+      const pairsWithContent: SimilarPair[] = pairs.map((p) => {
+        const chunkA = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.a) as { content: string } | undefined;
+        const chunkB = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.b) as { content: string } | undefined;
+        return { aId: p.a, aContent: chunkA?.content ?? "", bId: p.b, bContent: chunkB?.content ?? "" };
+      });
 
-      if (pairs.length > 0) {
-        pairsWithContent = pairs.map((p) => {
-          const chunkA = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.a) as { content: string } | undefined;
-          const chunkB = db.prepare("SELECT content FROM chunks WHERE id = ?").get(p.b) as { content: string } | undefined;
-          return { aId: p.a, aContent: chunkA?.content ?? "", bId: p.b, bContent: chunkB?.content ?? "" };
-        });
+      // 배치 분할
+      const providerName = aiProvider.name;
+      const batches = splitIntoBatches(fileSummaries, pairsWithContent, providerName, changedFilePaths);
+      console.log(`  AI analysis: ${allFileIds.size} files → ${batches.length} batches (${providerName})`);
 
-        pairSummaries = "\n\nSimilar chunk pairs to check for conflicts:\n" +
-          pairsWithContent.map((p, i) =>
-            `Pair ${i}: A(${p.aId}): ${p.aContent.slice(0, 150)} | B(${p.bId}): ${p.bContent.slice(0, 150)}`
-          ).join("\n");
-      }
+      // 배치별 분석
+      const validTypes = ["spec", "decision", "meeting", "research", "sprint", "task", "agent", "guide", "config", "changelog", "readme", "plan", "retrospective"];
+      const validRelTypes = ["references", "depends_on", "derived_from", "supersedes", "contradicts"];
+      let totalClassified = 0;
 
-      // 프롬프트 크기 제한: 변경 파일 우선, 최대 50개 + 유사 쌍 20개
-      const MAX_PAIRS = 20;
-      const cappedSummaries = capFileSummaries(
-        fileSummaries, [...allFileIds.keys()], changedFilePaths,
-      );
-      if (pairsWithContent.length > MAX_PAIRS) {
-        pairsWithContent = pairsWithContent.slice(0, MAX_PAIRS);
-        pairSummaries = "\n\nSimilar chunk pairs to check for conflicts:\n" +
-          pairsWithContent.map((p, i) =>
-            `Pair ${i}: A(${p.aId}): ${p.aContent.slice(0, 150)} | B(${p.bId}): ${p.bContent.slice(0, 150)}`
-          ).join("\n") + `\n... (capped at ${MAX_PAIRS} pairs)`;
-      }
+      for (let bi = 0; bi < batches.length; bi++) {
+        const batch = batches[bi];
+        const prompt = buildBatchPrompt(batch, allFileIds.size);
 
-      // 통합 프롬프트
-      const prompt = `Analyze this project with ${allFileIds.size} markdown files.
-
-Files:
-${cappedSummaries.join("\n")}
-${pairSummaries}
-
-Provide a SINGLE JSON response with three sections:
-
-1. "classifications": For files marked [unknown], classify into: spec, decision, meeting, research, sprint, task, agent, guide, config, changelog, readme, plan, retrospective
-2. "relations": Meaningful relationships between files (max 30). Types: references, depends_on, derived_from, supersedes, contradicts
-3. "conflicts": From the similar pairs above, flag TRUE contradictions only (high precision)
-
-Response format:
-{
-  "classifications": [{"path": "file.md", "docType": "spec"}],
-  "relations": [{"source": "a.md", "target": "b.md", "relationType": "depends_on", "confidence": 0.8}],
-  "conflicts": [{"pairIndex": 0, "severity": "high", "description": "..."}]
-}
-
-If a section has no results, use empty array [].`;
-
-      try {
-        let raw: unknown;
         try {
-          raw = await aiProvider.chatJSON<unknown>(prompt);
-        } catch (chatErr) {
-          const msg = (chatErr as Error).message ?? "";
-          if (msg.includes("No valid JSON")) {
-            // LLM이 유효한 JSON을 반환하지 않음 — 건너뜀
-            console.log(`  AI analysis: no valid JSON in response, skipping`);
-            raw = null;
-          } else {
-            // 진짜 에러 (timeout, auth, crash 등) — 상위로 전파
+          let raw: unknown;
+          try {
+            raw = await aiProvider.chatJSON<unknown>(prompt);
+          } catch (chatErr) {
+            const msg = (chatErr as Error).message ?? "";
+            if (msg.includes("No valid JSON")) {
+              console.log(`  Batch ${bi + 1}/${batches.length}: no valid JSON, skipping`);
+              continue;
+            }
             throw chatErr;
           }
-        }
 
-        if (raw && typeof raw === 'object') {
+          if (!raw || typeof raw !== 'object') continue;
+
           const result = raw as {
             classifications?: Array<{path: string; docType: string}>;
             relations?: Array<{source: string; target: string; relationType: string; confidence?: number}>;
             conflicts?: Array<{pairIndex: number; severity: string; description: string}>;
           };
 
-          // 1. 분류 적용
-          const validTypes = ["spec", "decision", "meeting", "research", "sprint", "task", "agent", "guide", "config", "changelog", "readme", "plan", "retrospective"];
-          let classified = 0;
+          // 분류 적용
           for (const c of result.classifications ?? []) {
             if (!c.path || !validTypes.includes(c.docType)) continue;
             const unknownFiles = db.prepare("SELECT id FROM files WHERE path = ? AND doc_type = 'unknown'").all(c.path) as Array<{id: string}>;
             for (const f of unknownFiles) {
               db.prepare("UPDATE files SET doc_type = ? WHERE id = ?").run(c.docType, f.id);
-              classified++;
+              totalClassified++;
             }
           }
 
-          // 2. 관계 저장
-          const validRelTypes = ["references", "depends_on", "derived_from", "supersedes", "contradicts"];
+          // 관계 저장
           const relations: Relation[] = [];
           for (const r of result.relations ?? []) {
             if (!r.source || !r.target || !validRelTypes.includes(r.relationType)) continue;
@@ -381,30 +341,62 @@ If a section has no results, use empty array [].`;
             });
           }
           if (relations.length > 0) insertRelations(db, relations);
-          aiRelCount = relations.length;
+          aiRelCount += relations.length;
 
-          // 3. 충돌 저장
-          for (const c of result.conflicts ?? []) {
-            if (c.pairIndex < 0 || c.pairIndex >= pairsWithContent.length) continue;
-            const pair = pairsWithContent[c.pairIndex];
-            const { insertConflict } = await import("../storage/sqlite.js");
-            insertConflict(db, {
-              id: randomUUID().slice(0, 16),
-              chunkAId: pair.aId,
-              chunkBId: pair.bId,
-              severity: (["low", "medium", "high"].includes(c.severity) ? c.severity : "medium") as any,
-              description: c.description || "Conflict detected",
-              status: "open",
-              detectedAt: now,
-            });
-            conflictCount++;
+          console.log(`  Batch ${bi + 1}/${batches.length}: ${result.classifications?.length ?? 0} classified, ${relations.length} relations`);
+        } catch (err) {
+          console.log(`  Batch ${bi + 1}/${batches.length} failed: ${(err as Error).message.slice(0, 60)}`);
+        }
+      }
+
+      // 교차 관계: 벡터 유사도로 추출된 쌍을 LLM에게 검증 요청
+      if (pairsWithContent.length > 0) {
+        console.log(`  Cross-batch: ${pairsWithContent.length} similar pairs...`);
+        const crossPrompt = buildCrossRelationPrompt(pairsWithContent);
+        try {
+          let crossRaw: unknown;
+          try {
+            crossRaw = await aiProvider.chatJSON<unknown>(crossPrompt);
+          } catch (chatErr) {
+            const msg = (chatErr as Error).message ?? "";
+            if (msg.includes("No valid JSON")) {
+              console.log(`  Cross-batch: no valid JSON, skipping`);
+              crossRaw = null;
+            } else {
+              throw chatErr;
+            }
           }
 
-          console.log(`  AI result (1 call): ${classified} classified, ${relations.length} relations, ${conflictCount} conflicts`);
+          if (crossRaw && typeof crossRaw === 'object') {
+            const crossResult = crossRaw as {
+              relations?: Array<{pairIndex: number; relationType: string; confidence?: number}>;
+              conflicts?: Array<{pairIndex: number; severity: string; description: string}>;
+            };
+
+            // 교차 충돌 저장
+            for (const c of crossResult.conflicts ?? []) {
+              if (c.pairIndex < 0 || c.pairIndex >= pairsWithContent.length) continue;
+              const pair = pairsWithContent[c.pairIndex];
+              insertConflict(db, {
+                id: randomUUID().slice(0, 16),
+                chunkAId: pair.aId,
+                chunkBId: pair.bId,
+                severity: (["low", "medium", "high"].includes(c.severity) ? c.severity : "medium") as any,
+                description: c.description || "Conflict detected",
+                status: "open",
+                detectedAt: now,
+              });
+              conflictCount++;
+            }
+            console.log(`  Cross-batch result: ${crossResult.relations?.length ?? 0} relations, ${conflictCount} conflicts`);
+          }
+        } catch (err) {
+          console.log(`  Cross-batch failed: ${(err as Error).message.slice(0, 60)}`);
         }
-      } catch (err) {
-        console.log(`  AI analysis failed: ${(err as Error).message.slice(0, 60)}`);
       }
+
+      console.log(`  AI total: ${totalClassified} classified, ${aiRelCount} relations, ${conflictCount} conflicts (${batches.length} batch calls)`);
+
     }
 
     if (relCount > 0 || aiRelCount > 0 || pairs.length > 0) {
