@@ -75,6 +75,7 @@ program
   .option("--kw <n>", "Override keyword_boost weight", parseFloat)
   .option("--taa <n>", "Override task_aware_authority weight", parseFloat)
   .option("--rec <n>", "Override recency weight", parseFloat)
+  .option("--no-relations", "Disable relation expansion (A/B comparison)")
   .action(async (options) => {
     const weightsOverride: Record<string, number> = {};
     if (options.sim !== undefined) weightsOverride.semanticSim = options.sim;
@@ -86,6 +87,7 @@ program
       questionsPath: options.questions,
       question: options.question !== undefined ? parseInt(options.question, 10) : undefined,
       weightsOverride: Object.keys(weightsOverride).length > 0 ? weightsOverride : undefined,
+      noRelations: options.noRelations,
     });
   });
 

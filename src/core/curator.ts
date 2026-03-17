@@ -486,60 +486,80 @@ function expandRelations(
     const allRelations = getAllRelations(db);
     if (allRelations.length === 0) return selected;
 
-    // 선택된 청크와 관계가 있는 "다른 파일"의 청크를 찾기
-    const relatedChunkScores: Array<{ chunkId: string; score: number; relation: typeof allRelations[0] }> = [];
+    // 관계의 chunk ID → file ID 매핑 (관계는 파일의 첫 청크 ID로 저장됨)
+    const chunkToFile = new Map<string, string>();
+    for (const rel of allRelations) {
+      if (!chunkToFile.has(rel.sourceChunkId)) {
+        const row = db.prepare("SELECT file_id FROM chunks WHERE id = ?").get(rel.sourceChunkId) as { file_id: string } | undefined;
+        if (row) chunkToFile.set(rel.sourceChunkId, row.file_id);
+      }
+      if (!chunkToFile.has(rel.targetChunkId)) {
+        const row = db.prepare("SELECT file_id FROM chunks WHERE id = ?").get(rel.targetChunkId) as { file_id: string } | undefined;
+        if (row) chunkToFile.set(rel.targetChunkId, row.file_id);
+      }
+    }
+
+    // 선택된 파일과 관계가 있는 "다른 파일"의 청크를 찾기
+    const relatedFileScores: Array<{ fileId: string; score: number }> = [];
 
     for (const rel of allRelations) {
       const typeWeight = RELATION_TYPE_WEIGHTS[rel.relationType] ?? 0.5;
       const score = rel.confidence * typeWeight;
+      const srcFileId = chunkToFile.get(rel.sourceChunkId);
+      const tgtFileId = chunkToFile.get(rel.targetChunkId);
+      if (!srcFileId || !tgtFileId) continue;
 
-      // source가 선택됨 → target이 후보
-      if (selectedChunkIds.has(rel.sourceChunkId) && !selectedChunkIds.has(rel.targetChunkId)) {
-        relatedChunkScores.push({ chunkId: rel.targetChunkId, score, relation: rel });
+      // source 파일이 선택됨 → target 파일이 후보
+      if (selectedFileIds.has(srcFileId) && !selectedFileIds.has(tgtFileId)) {
+        relatedFileScores.push({ fileId: tgtFileId, score });
       }
-      // target이 선택됨 → source가 후보
-      if (selectedChunkIds.has(rel.targetChunkId) && !selectedChunkIds.has(rel.sourceChunkId)) {
-        relatedChunkScores.push({ chunkId: rel.sourceChunkId, score, relation: rel });
+      // target 파일이 선택됨 → source 파일이 후보
+      if (selectedFileIds.has(tgtFileId) && !selectedFileIds.has(srcFileId)) {
+        relatedFileScores.push({ fileId: srcFileId, score });
       }
     }
 
-    if (relatedChunkScores.length === 0) return selected;
+    if (relatedFileScores.length === 0) return selected;
 
-    // 스코어 높은 순 정렬, 중복 제거
-    relatedChunkScores.sort((a, b) => b.score - a.score);
+    // 파일별 최고 스코어, 중복 제거
+    const fileScoreMap = new Map<string, number>();
+    for (const { fileId, score } of relatedFileScores) {
+      fileScoreMap.set(fileId, Math.max(fileScoreMap.get(fileId) ?? 0, score));
+    }
+    const sortedFiles = [...fileScoreMap.entries()].sort((a, b) => b[1] - a[1]);
+
     const seen = new Set<string>();
     const expansions: ScoredCandidate[] = [];
     let usedRelBudget = 0;
 
-    for (const { chunkId, score } of relatedChunkScores) {
+    for (const [relFileId, score] of sortedFiles) {
       if (expansions.length >= RELATION_MAX_CHUNKS) break;
       if (usedRelBudget >= relationBudget) break;
-      if (seen.has(chunkId) || selectedChunkIds.has(chunkId)) continue;
-      seen.add(chunkId);
 
-      // 청크 내용 조회
-      const chunk = db.prepare(
-        "SELECT c.id, c.file_id, c.section_path, c.content, c.token_count, f.path, f.doc_type FROM chunks c JOIN files f ON c.file_id = f.id WHERE c.id = ?",
-      ).get(chunkId) as {
-        id: string; file_id: string; section_path: string; content: string;
-        token_count: number; path: string; doc_type: string;
-      } | undefined;
+      // 관련 파일의 첫 번째 청크를 추가 (가장 대표적인 섹션)
+      const chunks = getChunksByFileId(db, relFileId);
+      if (chunks.length === 0) continue;
 
-      if (!chunk) continue;
-      if (exclude?.some((ex) => chunk.path.includes(ex))) continue;
-      if (usedRelBudget + chunk.token_count > relationBudget) continue;
+      const chunk = chunks[0];
+      if (selectedChunkIds.has(chunk.id) || seen.has(chunk.id)) continue;
+      seen.add(chunk.id);
+
+      const fileRow = db.prepare("SELECT path, doc_type FROM files WHERE id = ?").get(relFileId) as { path: string; doc_type: string } | undefined;
+      if (!fileRow) continue;
+      if (exclude?.some((ex) => fileRow.path.includes(ex))) continue;
+      if (usedRelBudget + chunk.tokenCount > relationBudget) continue;
 
       expansions.push({
         result: {
           id: chunk.id,
           vector: [],
-          fileId: chunk.file_id,
-          filePath: chunk.path,
-          sectionPath: chunk.section_path,
+          fileId: relFileId,
+          filePath: fileRow.path,
+          sectionPath: chunk.sectionPath,
           content: chunk.content,
-          docType: chunk.doc_type,
+          docType: fileRow.doc_type,
           date: "",
-          tokenCount: chunk.token_count,
+          tokenCount: chunk.tokenCount,
           distance: 0,
           similarity: 0,
         },
@@ -549,10 +569,10 @@ function expandRelations(
         recency: 0.5,
         rawScore: 0,
         redundancyPenalty: 0,
-        finalScore: score, // 관계 스코어를 finalScore에 저장
+        finalScore: score,
       });
 
-      usedRelBudget += chunk.token_count;
+      usedRelBudget += chunk.tokenCount;
     }
 
     return [...selected, ...expansions];

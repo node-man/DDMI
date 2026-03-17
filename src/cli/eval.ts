@@ -78,6 +78,7 @@ export async function runEval(
     questionsPath?: string;
     question?: number;
     weightsOverride?: Partial<ScoringWeights>;
+    noRelations?: boolean;
   } = {},
 ): Promise<void> {
   const ddmiDir = join(projectRoot, ".ddmi");
@@ -128,6 +129,9 @@ export async function runEval(
   console.log("=".repeat(60));
   console.log(`Questions: ${questions.length}`);
   console.log(`Weights: sim=${weights.semanticSim} kw=${weights.keywordBoost} taa=${weights.taskAwareAuthority} rec=${weights.recency}`);
+  if (options.noRelations) {
+    console.log(`Mode: --no-relations (relation expansion disabled)`);
+  }
   console.log();
 
   const results: QuestionResult[] = [];
@@ -137,6 +141,7 @@ export async function runEval(
       intent: q.question,
       taskType: q.task_type as "implementation" | "review" | "research" | "planning",
       maxTokens: 8000,
+      noRelations: options.noRelations,
     });
 
     const allContent = bundle.blocks.map((b) => b.content).join(" ");
