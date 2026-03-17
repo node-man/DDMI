@@ -10,12 +10,14 @@ import {
   initDatabase,
   upsertFile,
   insertChunks,
+  insertRelations,
 } from "../storage/sqlite.js";
-import type { FileRecord, ChunkRecord } from "../types.js";
+import type { FileRecord, ChunkRecord, Relation } from "../types.js";
 import {
   scoreCandidates,
   packBudget,
   expandSiblings,
+  expandRelations,
   computeKeywordBoost,
   computeCoverage,
 } from "./curator.js";
@@ -404,37 +406,37 @@ function makeChunkRecord(id: string, fileId: string, section: string, content: s
   };
 }
 
+function makeScoredCandidate(chunk: ChunkRecord, filePath: string, similarity = 0.85): ScoredCandidate {
+  return {
+    result: {
+      id: chunk.id,
+      vector: [],
+      fileId: chunk.fileId,
+      filePath,
+      sectionPath: chunk.sectionPath,
+      content: chunk.content,
+      docType: "spec",
+      date: "2026-01-01",
+      tokenCount: chunk.tokenCount,
+      distance: 0,
+      similarity,
+    },
+    semanticSim: similarity,
+    keywordBoost: 0,
+    taskAwareAuthority: 0.9,
+    recency: 0.5,
+    rawScore: similarity * 0.55 + 0.9 * 0.15 + 0.5 * 0.15,
+    redundancyPenalty: 0,
+    finalScore: similarity * 0.55 + 0.9 * 0.15 + 0.5 * 0.15,
+  };
+}
+
 describe("expandSiblings", () => {
   beforeEach(() => mkdirSync(SIBLING_TEST_DIR, { recursive: true }));
   afterEach(() => { try { rmSync(SIBLING_TEST_DIR, { recursive: true }); } catch {} });
 
   function testDbPath(): string {
     return join(SIBLING_TEST_DIR, `test-${randomUUID()}.db`);
-  }
-
-  function makeScoredCandidate(chunk: ChunkRecord, filePath: string, similarity = 0.85): ScoredCandidate {
-    return {
-      result: {
-        id: chunk.id,
-        vector: [],
-        fileId: chunk.fileId,
-        filePath,
-        sectionPath: chunk.sectionPath,
-        content: chunk.content,
-        docType: "spec",
-        date: "2026-01-01",
-        tokenCount: chunk.tokenCount,
-        distance: 0,
-        similarity,
-      },
-      semanticSim: similarity,
-      keywordBoost: 0,
-      taskAwareAuthority: 0.9,
-      recency: 0.5,
-      rawScore: similarity * 0.55 + 0.9 * 0.15 + 0.5 * 0.15,
-      redundancyPenalty: 0,
-      finalScore: similarity * 0.55 + 0.9 * 0.15 + 0.5 * 0.15,
-    };
   }
 
   it("같은 파일의 인접 섹션을 자동 포함한다", () => {
@@ -518,5 +520,143 @@ describe("expandSiblings", () => {
 
     const expanded = expandSiblings(selected, selected, 8000, dbPath);
     expect(expanded.length).toBe(1);
+  });
+});
+
+// ─── expandRelations ────────────────────────────────────
+
+describe("expandRelations", () => {
+  beforeEach(() => mkdirSync(SIBLING_TEST_DIR, { recursive: true }));
+  afterEach(() => { try { rmSync(SIBLING_TEST_DIR, { recursive: true }); } catch {} });
+
+  function testDbPath(): string {
+    return join(SIBLING_TEST_DIR, `test-rel-${randomUUID()}.db`);
+  }
+
+  it("관계가 있는 다른 파일의 청크를 추가한다", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+
+    // 파일 2개: api.md, plan.md
+    upsertFile(db, makeFileRecord("f1", "docs/api.md"));
+    upsertFile(db, makeFileRecord("f2", "docs/plan.md"));
+    insertChunks(db, [
+      makeChunkRecord("c1", "f1", "## API", "API 설계", 50),
+      makeChunkRecord("c2", "f2", "## Plan", "구현 계획", 50),
+    ]);
+
+    // c1 → c2 관계 (depends_on)
+    const rel: Relation = {
+      id: "rel-1",
+      sourceChunkId: "c1",
+      targetChunkId: "c2",
+      relationType: "depends_on",
+      confidence: 0.9,
+      extractionMethod: "ai",
+      metadata: {},
+      createdAt: "2026-01-01",
+    };
+    insertRelations(db, [rel]);
+    db.close();
+
+    // c1이 선택됨 → c2가 관계 확장으로 추가되어야 함
+    const selected = [makeScoredCandidate(
+      makeChunkRecord("c1", "f1", "## API", "API 설계", 50),
+      "docs/api.md",
+    )];
+
+    const expanded = expandRelations(selected, 8000, dbPath);
+
+    expect(expanded.length).toBe(2);
+    const expandedIds = expanded.map((e) => e.result.id);
+    expect(expandedIds).toContain("c1"); // 원래 선택
+    expect(expandedIds).toContain("c2"); // 관계 확장
+  });
+
+  it("관계가 없으면 확장하지 않는다", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+
+    upsertFile(db, makeFileRecord("f1", "docs/api.md"));
+    insertChunks(db, [makeChunkRecord("c1", "f1", "## API", "API 설계", 50)]);
+    db.close(); // 관계 없음
+
+    const selected = [makeScoredCandidate(
+      makeChunkRecord("c1", "f1", "## API", "API 설계", 50),
+      "docs/api.md",
+    )];
+
+    const expanded = expandRelations(selected, 8000, dbPath);
+    expect(expanded.length).toBe(1);
+  });
+
+  it("예산 초과 시 관계 확장을 멈춘다", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+
+    upsertFile(db, makeFileRecord("f1", "docs/a.md"));
+    upsertFile(db, makeFileRecord("f2", "docs/b.md"));
+    insertChunks(db, [
+      makeChunkRecord("c1", "f1", "## A", "A", 50),
+      makeChunkRecord("c2", "f2", "## B", "B", 500), // 큰 청크
+    ]);
+
+    insertRelations(db, [{
+      id: "rel-1", sourceChunkId: "c1", targetChunkId: "c2",
+      relationType: "depends_on", confidence: 0.9,
+      extractionMethod: "ai", metadata: {}, createdAt: "2026-01-01",
+    }]);
+    db.close();
+
+    const selected = [makeScoredCandidate(
+      makeChunkRecord("c1", "f1", "## A", "A", 50),
+      "docs/a.md",
+    )];
+
+    // budget 100 → remaining 50, relation budget = min(50, 20) = 20 → 500 token chunk doesn't fit
+    const expanded = expandRelations(selected, 100, dbPath);
+    expect(expanded.length).toBe(1); // c2가 너무 커서 추가 안 됨
+  });
+
+  it("depends_on이 references보다 우선순위가 높다", () => {
+    const dbPath = testDbPath();
+    const db = initDatabase(dbPath);
+
+    upsertFile(db, makeFileRecord("f1", "docs/a.md"));
+    upsertFile(db, makeFileRecord("f2", "docs/b.md"));
+    upsertFile(db, makeFileRecord("f3", "docs/c.md"));
+    insertChunks(db, [
+      makeChunkRecord("c1", "f1", "## A", "A", 50),
+      makeChunkRecord("c2", "f2", "## B", "B ref", 50),
+      makeChunkRecord("c3", "f3", "## C", "C dep", 50),
+    ]);
+
+    insertRelations(db, [
+      {
+        id: "rel-1", sourceChunkId: "c1", targetChunkId: "c2",
+        relationType: "references", confidence: 0.9,
+        extractionMethod: "ai", metadata: {}, createdAt: "2026-01-01",
+      },
+      {
+        id: "rel-2", sourceChunkId: "c1", targetChunkId: "c3",
+        relationType: "depends_on", confidence: 0.9,
+        extractionMethod: "ai", metadata: {}, createdAt: "2026-01-01",
+      },
+    ]);
+    db.close();
+
+    const selected = [makeScoredCandidate(
+      makeChunkRecord("c1", "f1", "## A", "A", 50),
+      "docs/a.md",
+    )];
+
+    const expanded = expandRelations(selected, 8000, dbPath);
+
+    // depends_on(1.0 × 0.9 = 0.9)이 references(0.7 × 0.9 = 0.63)보다 높으므로 c3이 먼저
+    expect(expanded.length).toBe(3);
+    // c3(depends_on)이 c2(references)보다 앞에
+    const addedIds = expanded.slice(1).map((e) => e.result.id);
+    expect(addedIds[0]).toBe("c3"); // depends_on 우선
+    expect(addedIds[1]).toBe("c2"); // references 다음
   });
 });

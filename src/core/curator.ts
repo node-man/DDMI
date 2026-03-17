@@ -16,6 +16,7 @@ import {
   getChunksByFileId,
   searchBM25,
   getOpenConflicts,
+  getAllRelations,
 } from "../storage/sqlite.js";
 import {
   initVectorStore,
@@ -39,6 +40,17 @@ const REDUNDANCY_PENALIZE = 0.85;
 const RECENCY_DATE_SPREAD_THRESHOLD = 30; // days
 const SIBLING_MAX_PER_FILE = 3; // 파일당 추가 sibling 최대 수
 const SIBLING_BUDGET_RATIO = 0.30; // direct budget의 30%까지 sibling에 사용
+const RELATION_BUDGET_RATIO = 0.20; // direct budget의 20%까지 relation expansion에 사용
+const RELATION_MAX_CHUNKS = 5; // 관계 확장으로 추가할 최대 청크 수
+
+/** 관계 유형별 가중치 — 높을수록 확장 우선 */
+const RELATION_TYPE_WEIGHTS: Record<string, number> = {
+  depends_on: 1.0,
+  derived_from: 0.8,
+  references: 0.7,
+  supersedes: 0.5,
+  contradicts: 0.3,
+};
 
 // ─── Public API ──────────────────────────────────────────
 
@@ -88,9 +100,14 @@ export async function createCurator(deps: CuratorDeps) {
       const packed = packBudget(scored, directBudget, weights, req.exclude);
 
       // 4b. Sibling section expansion — 선택된 청크의 같은 파일에서 인접 섹션 자동 포함
-      const selected = expandSiblings(packed, scored, directBudget, deps.dbPath, req.exclude);
+      const afterSiblings = expandSiblings(packed, scored, directBudget, deps.dbPath, req.exclude);
 
-      // 4c. Conflict context (open conflicts involving selected chunks)
+      // 4c. Relation expansion — AI 추출 관계가 있는 다른 파일의 청크 포함
+      const selected = req.noRelations
+        ? afterSiblings
+        : expandRelations(afterSiblings, directBudget, deps.dbPath, req.exclude);
+
+      // 4d. Conflict context (open conflicts involving selected chunks)
       const conflictBlocks = getConflictBlocks(deps.dbPath, selected, conflictBudget);
 
       // 5. Assemble
@@ -144,7 +161,7 @@ export async function createCurator(deps: CuratorDeps) {
 
 // ─── Exported for testing ────────────────────────────────
 
-export { scoreCandidates, packBudget, expandSiblings, computeKeywordBoost, computeCoverage };
+export { scoreCandidates, packBudget, expandSiblings, expandRelations, computeKeywordBoost, computeCoverage };
 export type { ScoredCandidate };
 
 // ─── Scoring ─────────────────────────────────────────────
@@ -433,6 +450,115 @@ function expandSiblings(
   }
 
   return [...selected, ...siblings];
+}
+
+// ─── Relation Expansion ─────────────────────────────────
+
+/**
+ * 선택된 청크의 파일과 AI 추출 관계가 있는 다른 파일의 청크를 예산 내에서 추가한다.
+ *
+ * 전략:
+ * - 선택된 청크들의 파일 ID를 수집
+ * - DB에서 해당 파일 청크와 관계가 있는 다른 파일의 청크를 조회
+ * - 관계 신뢰도 × 유형 가중치로 정렬
+ * - 예산(direct budget의 RELATION_BUDGET_RATIO)과 최대 수 제한
+ */
+function expandRelations(
+  selected: ScoredCandidate[],
+  directBudget: number,
+  dbPath: string,
+  exclude?: string[],
+): ScoredCandidate[] {
+  if (selected.length === 0) return selected;
+
+  const usedTokens = selected.reduce((s, c) => s + c.result.tokenCount, 0);
+  const relationBudget = Math.min(
+    directBudget - usedTokens,
+    Math.floor(directBudget * RELATION_BUDGET_RATIO),
+  );
+  if (relationBudget <= 0) return selected;
+
+  const selectedChunkIds = new Set(selected.map((s) => s.result.id));
+  const selectedFileIds = new Set(selected.map((s) => s.result.fileId));
+
+  const db = initDatabase(dbPath);
+  try {
+    const allRelations = getAllRelations(db);
+    if (allRelations.length === 0) return selected;
+
+    // 선택된 청크와 관계가 있는 "다른 파일"의 청크를 찾기
+    const relatedChunkScores: Array<{ chunkId: string; score: number; relation: typeof allRelations[0] }> = [];
+
+    for (const rel of allRelations) {
+      const typeWeight = RELATION_TYPE_WEIGHTS[rel.relationType] ?? 0.5;
+      const score = rel.confidence * typeWeight;
+
+      // source가 선택됨 → target이 후보
+      if (selectedChunkIds.has(rel.sourceChunkId) && !selectedChunkIds.has(rel.targetChunkId)) {
+        relatedChunkScores.push({ chunkId: rel.targetChunkId, score, relation: rel });
+      }
+      // target이 선택됨 → source가 후보
+      if (selectedChunkIds.has(rel.targetChunkId) && !selectedChunkIds.has(rel.sourceChunkId)) {
+        relatedChunkScores.push({ chunkId: rel.sourceChunkId, score, relation: rel });
+      }
+    }
+
+    if (relatedChunkScores.length === 0) return selected;
+
+    // 스코어 높은 순 정렬, 중복 제거
+    relatedChunkScores.sort((a, b) => b.score - a.score);
+    const seen = new Set<string>();
+    const expansions: ScoredCandidate[] = [];
+    let usedRelBudget = 0;
+
+    for (const { chunkId, score } of relatedChunkScores) {
+      if (expansions.length >= RELATION_MAX_CHUNKS) break;
+      if (usedRelBudget >= relationBudget) break;
+      if (seen.has(chunkId) || selectedChunkIds.has(chunkId)) continue;
+      seen.add(chunkId);
+
+      // 청크 내용 조회
+      const chunk = db.prepare(
+        "SELECT c.id, c.file_id, c.section_path, c.content, c.token_count, f.path, f.doc_type FROM chunks c JOIN files f ON c.file_id = f.id WHERE c.id = ?",
+      ).get(chunkId) as {
+        id: string; file_id: string; section_path: string; content: string;
+        token_count: number; path: string; doc_type: string;
+      } | undefined;
+
+      if (!chunk) continue;
+      if (exclude?.some((ex) => chunk.path.includes(ex))) continue;
+      if (usedRelBudget + chunk.token_count > relationBudget) continue;
+
+      expansions.push({
+        result: {
+          id: chunk.id,
+          vector: [],
+          fileId: chunk.file_id,
+          filePath: chunk.path,
+          sectionPath: chunk.section_path,
+          content: chunk.content,
+          docType: chunk.doc_type,
+          date: "",
+          tokenCount: chunk.token_count,
+          distance: 0,
+          similarity: 0,
+        },
+        semanticSim: 0,
+        keywordBoost: 0,
+        taskAwareAuthority: 0.5,
+        recency: 0.5,
+        rawScore: 0,
+        redundancyPenalty: 0,
+        finalScore: score, // 관계 스코어를 finalScore에 저장
+      });
+
+      usedRelBudget += chunk.token_count;
+    }
+
+    return [...selected, ...expansions];
+  } finally {
+    db.close();
+  }
 }
 
 // ─── Coverage Score ──────────────────────────────────────

@@ -69,6 +69,7 @@ export interface ContextRequest {
   exclude?: string[];
   timeRange?: { after?: string; before?: string };
   debug?: boolean;
+  noRelations?: boolean; // true면 relation expansion 비활성화 (A/B 비교용)
 }
 
 export interface ContextBundle {
