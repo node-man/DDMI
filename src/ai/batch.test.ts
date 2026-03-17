@@ -146,7 +146,7 @@ describe("buildBatchPrompt", () => {
     expect(prompt).toContain('"classifications"');
     expect(prompt).toContain('"relations"');
     expect(prompt).toContain('"conflicts"');
-    expect(prompt).toContain("Example response");
+    expect(prompt).toContain("Respond ONLY with valid JSON");
   });
 
   it("unknown docType 파일이 표시된다", () => {

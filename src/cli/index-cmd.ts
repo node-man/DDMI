@@ -288,15 +288,24 @@ export async function runIndex(
 
         try {
           let raw: unknown;
-          try {
-            raw = await aiProvider.chatJSON<unknown>(prompt);
-          } catch (chatErr) {
-            const msg = (chatErr as Error).message ?? "";
-            if (msg.includes("No valid JSON")) {
-              console.log(`  Batch ${bi + 1}/${batches.length}: no valid JSON, skipping`);
-              continue;
+          // 빈 응답 시 1회 재시도 (ollama 간헐적 빈 응답 대응)
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              raw = await aiProvider.chatJSON<unknown>(prompt);
+              break; // 성공
+            } catch (chatErr) {
+              const msg = (chatErr as Error).message ?? "";
+              if (msg.includes("No valid JSON") && attempt === 0) {
+                console.log(`  Batch ${bi + 1}/${batches.length}: empty/invalid response, retrying...`);
+                continue; // 1회 재시도
+              }
+              if (msg.includes("No valid JSON")) {
+                console.log(`  Batch ${bi + 1}/${batches.length}: no valid JSON after retry, skipping`);
+                raw = null;
+                break;
+              }
+              throw chatErr;
             }
-            throw chatErr;
           }
 
           if (!raw || typeof raw !== 'object') continue;

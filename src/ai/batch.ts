@@ -93,26 +93,23 @@ export function buildBatchPrompt(batch: BatchInput, totalFiles: number): string 
       ).join("\n");
   }
 
-  return `Analyze these ${batch.files.length} markdown files (batch from ${totalFiles} total).
+  return `You are a document analyzer. Respond ONLY with valid JSON, no other text.
+
+Analyze these ${batch.files.length} markdown files (batch from ${totalFiles} total).
 
 Files:
 ${fileSummaries.join("\n")}
 ${pairSection}
 
-Provide a JSON response:
+Tasks:
+1. "classifications": For files marked [unknown], classify as one of: spec, decision, meeting, research, sprint, task, agent, guide, config, changelog, readme, plan, retrospective
+2. "relations": Find meaningful relationships (max ${Math.min(30, batch.files.length * 2)}). Types: references, depends_on, derived_from, supersedes, contradicts
+3. "conflicts": Flag TRUE contradictions only
 
-1. "classifications": For files marked [unknown], classify into: spec, decision, meeting, research, sprint, task, agent, guide, config, changelog, readme, plan, retrospective
-2. "relations": Meaningful relationships between these files (max ${Math.min(30, batch.files.length * 2)}). Types: references, depends_on, derived_from, supersedes, contradicts
-3. "conflicts": From similar pairs above, flag TRUE contradictions only (high precision)
+Respond with this exact JSON structure:
+{"classifications":[{"path":"file.md","docType":"spec"}],"relations":[{"source":"a.md","target":"b.md","relationType":"depends_on","confidence":0.8}],"conflicts":[]}
 
-Example response:
-{
-  "classifications": [{"path": "file.md", "docType": "spec"}],
-  "relations": [{"source": "a.md", "target": "b.md", "relationType": "depends_on", "confidence": 0.8}],
-  "conflicts": []
-}
-
-If a section has no results, use empty array [].`;
+Use empty arrays [] for sections with no results. Do NOT include any text outside the JSON.`;
 }
 
 /**
