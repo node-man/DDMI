@@ -148,7 +148,7 @@ aimux는 독립 가치가 있다 (AI CLI multiplexer). MIT 라이선스. 별도 
 
 **목표**: AI 추출 관계가 context_assemble 결과에 반영되어, fact_recall이 측정 가능하게 개선된다.
 
-**Day 1-2: expandRelations() 구현 + 테스트**
+**Day 1-2: expandRelations() 구현 + 테스트 + workflow hint**
 
 ```
 변경 파일: src/core/curator.ts, src/core/curator.test.ts
@@ -164,6 +164,7 @@ aimux는 독립 가치가 있다 (AI CLI multiplexer). MIT 라이선스. 별도 
   - `contradicts`: 0.3
 - 예산: direct budget의 20% (sibling 30%와 별도)
 - **테스트**: 관계가 있을 때 확장, 없을 때 미변경, 예산 초과 시 중단
+- **workflow hint**: context_assemble 응답에 `hint: "context_feedback으로 유용도를 알려주세요"` 추가 (GitNexus 패턴)
 
 **Day 3: eval --no-relations 플래그**
 
@@ -194,8 +195,9 @@ aimux는 독립 가치가 있다 (AI CLI multiplexer). MIT 라이선스. 별도 
 변경 파일: packages/aimux/package.json
 ```
 
+- `npm view aimux` — 이름 충돌 확인. 충돌 시 `@ddmi/aimux` 사용
 - aimux@0.1.0 npm publish
-- ddmi의 `"aimux": "workspace:*"` → `"aimux": "^0.1.0"` 변경
+- ddmi의 `"aimux": "workspace:*"` → `"aimux": "^0.1.0"` (또는 `@ddmi/aimux`) 변경
 - `npm install` 동작 확인
 
 **Day 2: ddmi publish 준비**
